@@ -1,0 +1,10 @@
+# lsd config -> ~/.config/lsd/config.yaml
+# Kept minimal: aliases-core.zsh passes explicit flags (--group-directories-first,
+# --header, --git, --icon) per-command, which would conflict with strong opinions here.
+date: relative
+sorting:
+  column: name
+  dir-grouping: first
+icons:
+  when: auto
+  theme: fancy

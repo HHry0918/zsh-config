@@ -1,0 +1,7 @@
+" tab size 4 width
+set tabstop=4
+set shiftwidth=4
+set expandtab
+
+" display line number
+set number

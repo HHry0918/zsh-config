@@ -1,0 +1,11 @@
+# fd global ignore file -> ~/.config/fd/ignore (fd README: "global ignore file" location).
+# gitignore-format patterns, applied everywhere fd runs, on top of any .gitignore/.ignore
+# in the searched tree.
+.git/
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
+target/
