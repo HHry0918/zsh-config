@@ -14,7 +14,11 @@ fi
 
 # nvm: static PATH to the default node version (fast), lazy-load nvm.sh itself on first `nvm` use.
 if [[ -n $NVM_DIR ]]; then
-  _nvm_default_alias=$(<"$NVM_DIR/alias/default" 2>/dev/null)
+  # $(<file) is zsh's own read-file-into-var form; its "no such file" diagnostic is
+  # emitted directly by the shell, not a subprocess, so 2>/dev/null on the expression
+  # can't suppress it (found deploying to a box with no ~/.nvm) — guard with -f instead.
+  _nvm_default_alias=
+  [[ -f "$NVM_DIR/alias/default" ]] && _nvm_default_alias=$(<"$NVM_DIR/alias/default")
   if [[ -d "$NVM_DIR/versions/node/$_nvm_default_alias" ]]; then
     _nvm_default_version=$_nvm_default_alias
   else
