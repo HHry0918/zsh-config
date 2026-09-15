@@ -1,0 +1,31 @@
+# Header format: <type>(<scope>): <description>
+#
+# Types of commits:
+# feat: Introduces a new feature.
+# fix: Patches a bug.
+# docs: Documentation-only changes.
+# style: Changes that do not affect the meaning of the code (white-space, formatting, etc).
+# refactor: A code change that neither fixes a bug nor adds a feature.
+# perf: Improves performance.
+# test: Adds missing tests or corrects existing tests.
+# chore: Changes to the build process or auxiliary tools and libraries such as documentation generation.
+#
+# Scope (optional): provides additional contextual information on where the change has taken effect. 
+# In eg., a particular component or feature that the change impacts.
+#
+# Description: summarizes the change to make the commit message stand alone. 
+# Imperative form (stating what the commit does rather than what it did)
+# 50 characters max
+#
+########################
+# <Start Header below> #
+########################
+
+# Body (optional): 
+# Detailed explanation of the change 
+# Include rationale and any implications
+# 72 characters max
+######################
+# <Start Body below> #
+######################
+

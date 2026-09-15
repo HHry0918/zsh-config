@@ -1,0 +1,9 @@
+#!/bin/sh
+# Installed via core.hooksPath by install.sh. Blocks a commit that looks like it's
+# about to add a secret — this repo has a documented history of near-misses with
+# ~/.zshenv, so this check stays even though .gitignore should already keep those out.
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact || exit 1
+else
+  echo "pre-commit: gitleaks not installed, skipping secret scan (see bootstrap/deps-*.sh)" >&2
+fi
