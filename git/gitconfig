@@ -74,3 +74,8 @@
 	path = ~/delta-themes.gitconfig
 [includeIf "gitdir:~/work/"]
 	path = ~/.gitconfig-work
+# Per-machine escape hatch, not tracked by this repo — e.g. a [user] identity on a box
+# that has no ~/work/ (mirrors the ~/.zshrc.local pattern). Git silently ignores a
+# missing include, so this is a no-op where the file is absent.
+[include]
+	path = ~/.gitconfig.local

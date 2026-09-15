@@ -39,6 +39,14 @@ Atlassian, Jenkins, Slack tokens, a DB password). None of that is in this repo. 
 To migrate an existing machine's live `~/.zshenv` into this split, run
 `./install.sh --migrate-zshenv` (see script for the backup-first sequence).
 
+## Per-machine escape hatches
+
+Two files, neither tracked, both silently no-ops when absent:
+
+- `~/.zshrc.local` — sourced last by `zsh/zshrc`, for shell config specific to one box.
+- `~/.gitconfig.local` — included last by `git/gitconfig`, e.g. a `[user]` identity on a
+  machine with no `~/work/` (so `git/gitconfig`'s `[includeIf "gitdir:~/work/"]` never fires).
+
 ## Why not stow/chezmoi
 
 Plain symlinks via a shell script — one dependency (bash), fully readable, easy to undo

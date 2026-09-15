@@ -6,6 +6,7 @@ zsh/zshenv.secrets
 .zsh_history
 .fzf.zsh
 .zshrc.local
+.gitconfig.local
 
 # Caches and clones install.sh creates/manages, never vendored
 .cache/
