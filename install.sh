@@ -4,6 +4,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OS="$(uname -s)"
 BACKUP_DIR="$HOME/.zsh-config-backup/$(date -u +%Y%m%dT%H%M%SZ)"
 DRY_RUN=false
 WITH_WORK=false
@@ -108,12 +109,22 @@ clone_if_missing() {
 # box with no Nerd Font installed at all. Unconditional (not gated behind a flag) so
 # every future install gets this without anyone having to remember to ask for it.
 install_nerd_font() {
-  # ( set +o pipefail; ... ) matters: fc-list's ~900 lines of output exceed one pipe
-  # buffer, so grep -q (which closes its input the instant it finds a match) SIGPIPEs
+  # macOS has no fontconfig, so fc-list can't be used to probe for an existing install —
+  # check the same directories the Darwin install branch below writes into instead. Glob
+  # must match that branch's `JetBrainsMonoNerdFontMono-*.ttf` pattern or this breaks again.
+  #
+  # ( set +o pipefail; ... ) matters on Linux: fc-list's ~900 lines of output exceed one
+  # pipe buffer, so grep -q (which closes its input the instant it finds a match) SIGPIPEs
   # fc-list mid-write. Under pipefail that makes the *pipeline's* exit status reflect
   # fc-list's SIGPIPE death, not grep's success — a false "not installed" every time,
   # caught by testing this against the font actually already on this workstation.
-  if ( set +o pipefail; fc-list 2>/dev/null | grep -qi "JetBrainsMono Nerd Font Mono" ); then
+  if [[ "$OS" == Darwin ]]; then
+    if compgen -G "$HOME/Library/Fonts/JetBrainsMonoNerdFontMono-*.ttf" >/dev/null \
+    || compgen -G "/Library/Fonts/JetBrainsMonoNerdFontMono-*.ttf" >/dev/null; then
+      echo "install.sh: JetBrainsMono Nerd Font already installed, skipping"
+      return 0
+    fi
+  elif ( set +o pipefail; fc-list 2>/dev/null | grep -qi "JetBrainsMono Nerd Font Mono" ); then
     echo "install.sh: JetBrainsMono Nerd Font already installed, skipping"
     return 0
   fi
@@ -151,7 +162,7 @@ PY
   # Only the fixed-width "Mono" variant (icon glyphs stay a fixed cell width, which is
   # what a terminal needs) — and not the ligature-free "NL" family, which is a separate
   # font name entirely.
-  if [[ "$(uname -s)" == "Darwin" ]]; then
+  if [[ "$OS" == Darwin ]]; then
     mkdir -p "$HOME/Library/Fonts"
     find "$tmp/extract" -maxdepth 1 -name 'JetBrainsMonoNerdFontMono-*.ttf' -exec cp {} "$HOME/Library/Fonts/" \;
     echo "install.sh: installed JetBrainsMono Nerd Font -> ~/Library/Fonts (macOS picks it up automatically)"
@@ -174,7 +185,15 @@ PY
 # happens to have passwordless sudo at install time.
 ensure_zsh_shell() {
   local current_shell
-  current_shell=$(getent passwd "$USER" 2>/dev/null | cut -d: -f7)
+  if [[ "$OS" == Darwin ]]; then
+    # getent doesn't exist on macOS. dscl's UserShell value can wrap onto a second
+    # "line" of output for some odd usernames — tr collapses that before awk picks
+    # the value field. `|| true`: pipefail (set -euo pipefail up top) would otherwise
+    # abort this whole script if the UserShell key is ever missing.
+    current_shell=$(dscl . -read "/Users/$USER" UserShell 2>/dev/null | tr '\n' ' ' | awk '{print $2}' || true)
+  else
+    current_shell=$(getent passwd "$USER" 2>/dev/null | cut -d: -f7 || true)
+  fi
   local zsh_path; zsh_path=$(command -v zsh || true)
   if [[ -z "$zsh_path" ]]; then
     echo "install.sh: zsh not found on PATH, can't switch the login shell — install zsh first" >&2
@@ -185,7 +204,17 @@ ensure_zsh_shell() {
     return 0
   fi
   if ! grep -qxF "$zsh_path" /etc/shells 2>/dev/null; then
-    echo "install.sh: $zsh_path isn't listed in /etc/shells, can't chsh to it as a non-root user — add it there first" >&2
+    # Never auto-append: this is the one system-file mutation install.sh could make
+    # that isn't reversible via $BACKUP_DIR. On macOS, Homebrew zsh isn't listed in
+    # /etc/shells by default (the bundled /bin/zsh is) — print the exact fix instead
+    # of guessing which one the user wants.
+    if [[ "$OS" == Darwin ]]; then
+      echo "install.sh: $zsh_path isn't in /etc/shells. Add it, then re-run:" >&2
+      echo "  echo $zsh_path | sudo tee -a /etc/shells" >&2
+      echo "  (or accept macOS's system zsh: chsh -s /bin/zsh)" >&2
+    else
+      echo "install.sh: $zsh_path isn't listed in /etc/shells, can't chsh to it as a non-root user — add it there first" >&2
+    fi
     return 0
   fi
   if $DRY_RUN; then
@@ -283,6 +312,7 @@ link bat/config                                ~/.config/bat/config
 link ripgrep/ripgreprc                         ~/.config/ripgrep/ripgreprc
 link fd/ignore                                 ~/.config/fd/ignore
 link lsd/config.yaml                           ~/.config/lsd/config.yaml
+link ghostty/config                            ~/.config/ghostty/config
 link tmux/tmux.conf                            ~/.tmux.conf
 link vim/vimrc                                 ~/.vimrc
 
@@ -314,10 +344,12 @@ fi
 ### --terminator-font: write a minimal Terminator profile selecting a Nerd Font, only
 ### if no config exists yet — never rewrite a real one (ConfigObj's nested format isn't
 ### worth risking a bad in-place edit over; a message is safer than a corrupted config).
-if $SET_TERMINATOR_FONT; then
+if $SET_TERMINATOR_FONT && [[ "$OS" == Darwin ]]; then
+  echo "install.sh: --terminator-font is Linux-only (Terminator doesn't run on macOS) — skipping. See ghostty/config for the macOS equivalent." >&2
+elif $SET_TERMINATOR_FONT; then
   terminator_config="$HOME/.config/terminator/config"
   if [[ -e "$terminator_config" ]]; then
-    if grep -qs '^\s*font\s*=' "$terminator_config"; then
+    if grep -qs '^[[:space:]]*font[[:space:]]*=' "$terminator_config"; then
       echo "install.sh: $terminator_config already exists and sets a font, leaving it alone"
     else
       echo "install.sh: $terminator_config already exists — add manually under [profiles][[default]]: use_system_font = False / font = $TERMINATOR_FONT"
