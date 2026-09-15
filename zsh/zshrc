@@ -1,0 +1,30 @@
+# Thin loader. All actual configuration lives in zshrc.d/, split by concern so a
+# per-machine difference (e.g. macOS) means adding one file, not forking this whole one.
+#
+# See https://github.com/ohmyzsh/ohmyzsh/wiki/Themes
+ZSH_THEME="agnoster"
+
+# Uncomment the following line to use case-sensitive completion.
+CASE_SENSITIVE="true"
+
+zstyle ':omz:update' mode reminder  # just remind me to update when it's time
+zstyle ':omz:update' frequency 7
+
+# Uncomment the following line to enable command auto-correction.
+ENABLE_CORRECTION="true"
+
+# Caution: this setting can cause issues with multiline prompts in zsh < 5.7.1 (see #5765)
+COMPLETION_WAITING_DOTS="true"
+
+HIST_STAMPS="dd/mm/yyyy HH:MM:SS"
+
+# Which plugins would you like to load?
+# Standard plugins can be found in $ZSH/plugins/. Custom plugins in $ZSH_CUSTOM/plugins/.
+plugins=(zoxide fzf fzf-tab zsh-interactive-cd tmux alias-finder aliases)
+
+for f in ~/.zshrc.d/*.zsh; do
+  source "$f"
+done
+
+# Per-machine escape hatch, not tracked by this repo.
+[[ -f ~/.zshrc.local ]] && source ~/.zshrc.local
