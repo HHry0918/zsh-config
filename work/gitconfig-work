@@ -1,0 +1,5 @@
+# Work git identity, applied only under ~/work/ via the [includeIf "gitdir:~/work/"]
+# in git/gitconfig. Keeps commits outside ~/work/ from using the work email by default.
+[user]
+	email = zsh-config@users.noreply.github.com
+	name = zsh-config
