@@ -37,12 +37,20 @@ done
 
 # probe TOOL: does the installed binary support the flag this config actually needs?
 # (not "is it new enough" — the flag is what matters, and this is what's testable.)
+#
+# Each "X --help | grep -q Y" is wrapped in ( set +o pipefail; ... ): grep -q closes its
+# input the instant it finds a match, and if the producer is still writing when that
+# happens it gets SIGPIPE'd — which, under pipefail, makes the *pipeline's* exit status
+# reflect that non-zero SIGPIPE death rather than grep's success. --help output is small
+# enough that this rarely fires in practice, but install.sh's near-identical fc-list
+# probe hit it reproducibly (900+ lines), so these are hardened the same way rather than
+# left to depend on today's output happening to fit in one pipe buffer.
 probe() {
   case "$1" in
-    bat)    command -v bat    >/dev/null 2>&1 && bat --help    2>/dev/null | grep -q -- '--strip-ansi' ;;
-    fd)     command -v fd     >/dev/null 2>&1 && fd  --help    2>/dev/null | grep -q -- '--strip-cwd-prefix' ;;
-    lsd)    command -v lsd    >/dev/null 2>&1 && lsd --help    2>/dev/null | grep -q -- '--git' ;;
-    delta)  command -v delta  >/dev/null 2>&1 && delta --help  2>/dev/null | grep -q -- '--grep-output-type' ;;
+    bat)    command -v bat    >/dev/null 2>&1 && ( set +o pipefail; bat --help    2>/dev/null | grep -q -- '--strip-ansi' ) ;;
+    fd)     command -v fd     >/dev/null 2>&1 && ( set +o pipefail; fd  --help    2>/dev/null | grep -q -- '--strip-cwd-prefix' ) ;;
+    lsd)    command -v lsd    >/dev/null 2>&1 && ( set +o pipefail; lsd --help    2>/dev/null | grep -q -- '--git' ) ;;
+    delta)  command -v delta  >/dev/null 2>&1 && ( set +o pipefail; delta --help  2>/dev/null | grep -q -- '--grep-output-type' ) ;;
     zoxide) command -v zoxide >/dev/null 2>&1 && zoxide init zsh >/dev/null 2>&1 ;;
   esac
 }
