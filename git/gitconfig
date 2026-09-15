@@ -37,8 +37,10 @@
 	rbi = rebase --interactive
 
 	# Function alias
-	repo-head-name = "!f() { git repo-head-fullname | cut -d "/" -f 3,4 --output-delimiter=' ' ; }; f"
-	repo-head-shortname = "!f() { git repo-head-fullname | cut -d "/" -f 4 --output-delimiter=' ' ; }; f"
+	# cut's --output-delimiter is GNU-only and errors under BSD cut (macOS) — piping
+	# through tr instead is portable and produces identical output for both fields.
+	repo-head-name = "!f() { git repo-head-fullname | cut -d "/" -f 3,4 | tr '/' ' ' ; }; f"
+	repo-head-shortname = "!f() { git repo-head-fullname | cut -d "/" -f 4 ; }; f"
 	sync-local = "!f() { git co $(git repo-head-shortname) && git pr && git sw - && git pr ; }; f"
 	sync-remote = "!f() { export HEAD_BRANCH=$(git repo-head-shortname) && git co $HEAD_BRANCH && git pr && git sw - && git rbi $HEAD_BRANCH ; }; f"
 	ps-upstream = "!f() { git push --set-upstream origin $(git br-name); }; f"
