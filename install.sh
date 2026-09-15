@@ -89,9 +89,19 @@ $DRY_RUN && echo "(dry run — no changes will be made)"
 ### Framework clones (never vendored)
 clone_if_missing https://github.com/ohmyzsh/ohmyzsh.git "$HOME/.oh-my-zsh"
 clone_if_missing https://github.com/Aloxaf/fzf-tab.git "$HOME/.oh-my-zsh/custom/plugins/fzf-tab"
-clone_if_missing https://github.com/junegunn/fzf.git "$HOME/.fzf"
-if ! $DRY_RUN && [[ -x "$HOME/.fzf/install" && ! -f "$HOME/.fzf.zsh" ]]; then
-  "$HOME/.fzf/install" --key-bindings --completion --no-update-rc --no-bash --no-fish
+
+# Only clone+build fzf from source if the system's fzf (apt/brew/etc) can't already do
+# what 10-framework.zsh needs (`--zsh`). Found the hard way: cloning unconditionally
+# creates two fzf installs, and if the system one (e.g. an old apt package) is earlier
+# on PATH, its generated ~/.fzf.zsh ends up calling the OLD `fzf --zsh` — which doesn't
+# support the flag — instead of the new one the clone just built.
+if ! (command -v fzf >/dev/null && fzf --zsh >/dev/null 2>&1); then
+  clone_if_missing https://github.com/junegunn/fzf.git "$HOME/.fzf"
+  if ! $DRY_RUN && [[ -x "$HOME/.fzf/install" && ! -f "$HOME/.fzf.zsh" ]]; then
+    "$HOME/.fzf/install" --key-bindings --completion --no-update-rc --no-bash --no-fish
+  fi
+else
+  echo "install.sh: system fzf already supports --zsh, skipping the source build"
 fi
 # zinit self-bootstraps from zsh/zshrc.d/10-framework.zsh on first shell start —
 # deliberately not duplicated here.
