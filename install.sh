@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
 # Symlinks this repo's config into $HOME. Idempotent, safe to re-run.
-#
-# Usage:
-#   ./install.sh [--dry-run] [--with-work] [--force] [--migrate-zshenv]
-#
-#   --dry-run         Print every action, change nothing.
-#   --with-work       Also link work/ (Morse Micro specific env/aliases/utils).
-#   --force           Overwrite an existing symlink that points elsewhere, without asking.
-#   --migrate-zshenv  One-time: split a live ~/.zshenv into ~/.zshenv.secrets + ~/.work-env.zsh
-#                     and replace ~/.zshenv with a symlink to zsh/zshenv. See README.md.
+# Run './install.sh --help' for options.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,13 +10,38 @@ WITH_WORK=false
 FORCE=false
 MIGRATE_ZSHENV=false
 
+usage() {
+  cat <<'EOF'
+Usage: ./install.sh [OPTIONS]
+
+Symlinks this repo's zsh/oh-my-zsh/git/tool config into $HOME. Idempotent,
+safe to re-run — existing real files are backed up before being replaced.
+
+Options:
+  -h, --help         Show this help and exit.
+  --dry-run          Print every action, change nothing.
+  --with-work        Also link work/ (Morse Micro specific env/aliases/utils).
+  --force            Overwrite an existing symlink that points elsewhere,
+                     without asking.
+  --migrate-zshenv   One-time: back up a live ~/.zshenv, then hand off to
+                     zsh/zshenv.secrets.template + work/work-env.zsh instead
+                     of attempting an automatic secret/portable split.
+                     See README.md.
+
+Examples:
+  ./install.sh --dry-run --with-work   # preview everything first
+  ./install.sh --with-work             # install, including work module
+EOF
+}
+
 for arg in "$@"; do
   case "$arg" in
+    -h|--help) usage; exit 0 ;;
     --dry-run) DRY_RUN=true ;;
     --with-work) WITH_WORK=true ;;
     --force) FORCE=true ;;
     --migrate-zshenv) MIGRATE_ZSHENV=true ;;
-    *) echo "install.sh: unknown flag '$arg'" >&2; exit 1 ;;
+    *) echo "install.sh: unknown flag '$arg'" >&2; usage >&2; exit 1 ;;
   esac
 done
 
