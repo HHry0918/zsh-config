@@ -11,9 +11,15 @@ prompt_end() {
   CURRENT_BG=''
 }
 
-prompt_context() {
-    echo ""
-}
+# agnoster.zsh-theme's own prompt_context (styled, root-highlighted, SSH-aware) already
+# renders "user@host" — hidden by default (single-workstation setups don't need it), but
+# left in place when ZSH_CONFIG_DISPLAY_HOST is set (install.sh --display-host writes
+# that into ~/.zshrc.local), which is useful on a shared fleet of similarly-named boxes.
+if [[ -z $ZSH_CONFIG_DISPLAY_HOST ]]; then
+  prompt_context() {
+      echo ""
+  }
+fi
 
 : ${AGNOSTER_GIT_DIRTY_FG:=${CURRENT_FG}}
 : ${AGNOSTER_BZR_DIRTY_FG:=${CURRENT_BG}}

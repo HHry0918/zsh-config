@@ -9,6 +9,7 @@ DRY_RUN=false
 WITH_WORK=false
 FORCE=false
 MIGRATE_ZSHENV=false
+DISPLAY_HOST=false
 
 usage() {
   cat <<'EOF'
@@ -27,6 +28,10 @@ Options:
                      zsh/zshenv.secrets.template + work/work-env.zsh instead
                      of attempting an automatic secret/portable split.
                      See README.md.
+  --display-host     Show "user@host" in the prompt (hidden by default — the
+                     agnoster theme already renders it, this just un-hides
+                     it). Useful on a fleet of similarly-named shared boxes.
+                     Writes ZSH_CONFIG_DISPLAY_HOST=1 into ~/.zshrc.local.
 
 Examples:
   ./install.sh --dry-run --with-work   # preview everything first
@@ -41,6 +46,7 @@ for arg in "$@"; do
     --with-work) WITH_WORK=true ;;
     --force) FORCE=true ;;
     --migrate-zshenv) MIGRATE_ZSHENV=true ;;
+    --display-host) DISPLAY_HOST=true ;;
     *) echo "install.sh: unknown flag '$arg'" >&2; usage >&2; exit 1 ;;
   esac
 done
@@ -83,8 +89,74 @@ clone_if_missing() {
   run git clone --depth 1 "$url" "$dest"
 }
 
+# install_nerd_font — the agnoster theme needs Powerline glyphs (U+E0A0/U+E0B0) and
+# lsd --icon=always needs the broader Nerd Font icon set; neither renders without one
+# selected in whatever terminal is actually drawing the glyphs. Found the hard way on a
+# box with no Nerd Font installed at all. Unconditional (not gated behind a flag) so
+# every future install gets this without anyone having to remember to ask for it.
+install_nerd_font() {
+  # ( set +o pipefail; ... ) matters: fc-list's ~900 lines of output exceed one pipe
+  # buffer, so grep -q (which closes its input the instant it finds a match) SIGPIPEs
+  # fc-list mid-write. Under pipefail that makes the *pipeline's* exit status reflect
+  # fc-list's SIGPIPE death, not grep's success — a false "not installed" every time,
+  # caught by testing this against the font actually already on this workstation.
+  if ( set +o pipefail; fc-list 2>/dev/null | grep -qi "JetBrainsMono Nerd Font Mono" ); then
+    echo "install.sh: JetBrainsMono Nerd Font already installed, skipping"
+    return 0
+  fi
+  if ! command -v python3 >/dev/null; then
+    echo "install.sh: python3 not found, can't resolve the Nerd Font release — install manually from https://github.com/ryanoasis/nerd-fonts/releases (JetBrainsMono)" >&2
+    return 0
+  fi
+  local url
+  url=$(python3 - <<'PY'
+import json, urllib.request
+req = urllib.request.Request(
+    "https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest",
+    headers={"User-Agent": "zsh-config-bootstrap"},
+)
+data = json.load(urllib.request.urlopen(req, timeout=15))
+for a in data["assets"]:
+    if a["name"] == "JetBrainsMono.tar.xz":
+        print(a["browser_download_url"])
+        break
+PY
+  )
+  if [[ -z "$url" ]]; then
+    echo "install.sh: couldn't resolve the JetBrainsMono Nerd Font release — install manually from https://github.com/ryanoasis/nerd-fonts/releases" >&2
+    return 0
+  fi
+  if $DRY_RUN; then
+    echo "+ download and install JetBrainsMono Nerd Font from $url"
+    return 0
+  fi
+  echo "install.sh: fetching JetBrainsMono Nerd Font..."
+  local tmp; tmp=$(mktemp -d)
+  curl -fsSL "$url" -o "$tmp/font.tar.xz"
+  mkdir -p "$tmp/extract"
+  tar -xf "$tmp/font.tar.xz" -C "$tmp/extract"
+  # Only the fixed-width "Mono" variant (icon glyphs stay a fixed cell width, which is
+  # what a terminal needs) — and not the ligature-free "NL" family, which is a separate
+  # font name entirely.
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    mkdir -p "$HOME/Library/Fonts"
+    find "$tmp/extract" -maxdepth 1 -name 'JetBrainsMonoNerdFontMono-*.ttf' -exec cp {} "$HOME/Library/Fonts/" \;
+    echo "install.sh: installed JetBrainsMono Nerd Font -> ~/Library/Fonts (macOS picks it up automatically)"
+  elif command -v fc-cache >/dev/null; then
+    mkdir -p "$HOME/.local/share/fonts/NerdFonts/JetBrainsMono"
+    find "$tmp/extract" -maxdepth 1 -name 'JetBrainsMonoNerdFontMono-*.ttf' -exec cp {} "$HOME/.local/share/fonts/NerdFonts/JetBrainsMono/" \;
+    fc-cache -f "$HOME/.local/share/fonts" >/dev/null
+    echo "install.sh: installed JetBrainsMono Nerd Font -> ~/.local/share/fonts/NerdFonts/JetBrainsMono"
+  else
+    echo "install.sh: no fontconfig and not macOS — install a Nerd Font manually for your terminal" >&2
+  fi
+  rm -rf "$tmp"
+}
+
 echo "== zsh-config install ($REPO_DIR) =="
 $DRY_RUN && echo "(dry run — no changes will be made)"
+
+install_nerd_font
 
 ### Framework clones (never vendored)
 clone_if_missing https://github.com/ohmyzsh/ohmyzsh.git "$HOME/.oh-my-zsh"
@@ -172,6 +244,18 @@ if $WITH_WORK; then
   link work/gitconfig-work  ~/.gitconfig-work
 else
   echo "install.sh: skipping work module (pass --with-work to include it)"
+fi
+
+### --display-host: un-hide the theme's own "user@host" segment (see 30-prompt.zsh)
+### via the existing ~/.zshrc.local per-machine escape hatch. Idempotent: never
+### duplicates the line, never touches anything else that may already be there.
+if $DISPLAY_HOST; then
+  if ! grep -qs '^export ZSH_CONFIG_DISPLAY_HOST=' ~/.zshrc.local 2>/dev/null; then
+    run bash -c 'printf "export ZSH_CONFIG_DISPLAY_HOST=1\n" >> ~/.zshrc.local'
+    echo "install.sh: added ZSH_CONFIG_DISPLAY_HOST=1 to ~/.zshrc.local"
+  else
+    echo "install.sh: ~/.zshrc.local already sets ZSH_CONFIG_DISPLAY_HOST, leaving it alone"
+  fi
 fi
 
 echo "== done =="
