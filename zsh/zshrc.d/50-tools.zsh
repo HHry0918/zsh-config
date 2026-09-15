@@ -1,4 +1,4 @@
-eval "$(zoxide init --cmd cd zsh)"
+command -v zoxide >/dev/null && eval "$(zoxide init --cmd cd zsh)"
 
 command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"
 _zcache pyenv-init pyenv init - --no-rehash zsh
@@ -34,7 +34,7 @@ fi
 # bun completions
 [ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
-alias claude-raw="$(command -v claude)"
+command -v claude >/dev/null && alias claude-raw="$(command -v claude)"
 alias claude-headroom="headroom wrap claude --1m"
 
 # claude-mem worker: resolve the installed version rather than hardcoding it, since the
