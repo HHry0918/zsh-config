@@ -1,0 +1,19 @@
+# Secrets: real values live outside the repo, filled from *.template files
+.zshenv.secrets
+zsh/zshenv.secrets
+
+# History and machine-generated files
+.zsh_history
+.fzf.zsh
+.zshrc.local
+
+# Caches and clones install.sh creates/manages, never vendored
+.cache/
+.oh-my-zsh/
+.local/share/zinit/
+
+# Never, under any circumstances
+*.pem
+*.key
+id_rsa*
+id_ed25519*
