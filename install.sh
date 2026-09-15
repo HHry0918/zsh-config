@@ -10,6 +10,8 @@ WITH_WORK=false
 FORCE=false
 MIGRATE_ZSHENV=false
 DISPLAY_HOST=false
+TERMINATOR_FONT="JetBrainsMono Nerd Font Mono 11"
+SET_TERMINATOR_FONT=false
 
 usage() {
   cat <<'EOF'
@@ -32,6 +34,15 @@ Options:
                      agnoster theme already renders it, this just un-hides
                      it). Useful on a fleet of similarly-named shared boxes.
                      Writes ZSH_CONFIG_DISPLAY_HOST=1 into ~/.zshrc.local.
+  --terminator-font[=SPEC]
+                     Write a Terminator profile selecting a Nerd Font (default
+                     "JetBrainsMono Nerd Font Mono 11", or pass SPEC for a
+                     different family/size) so glyphs don't render as boxes.
+                     Only writes ~/.config/terminator/config if it doesn't
+                     already exist; otherwise prints a manual pointer.
+
+Note: the login shell is switched to zsh automatically (if zsh is installed
+and listed in /etc/shells) unless it already is zsh — no flag needed.
 
 Examples:
   ./install.sh --dry-run --with-work   # preview everything first
@@ -47,6 +58,8 @@ for arg in "$@"; do
     --force) FORCE=true ;;
     --migrate-zshenv) MIGRATE_ZSHENV=true ;;
     --display-host) DISPLAY_HOST=true ;;
+    --terminator-font) SET_TERMINATOR_FONT=true ;;
+    --terminator-font=*) SET_TERMINATOR_FONT=true; TERMINATOR_FONT="${arg#--terminator-font=}" ;;
     *) echo "install.sh: unknown flag '$arg'" >&2; usage >&2; exit 1 ;;
   esac
 done
@@ -153,6 +166,46 @@ PY
   rm -rf "$tmp"
 }
 
+# ensure_zsh_shell — a repo whose entire job is a zsh config should leave you in zsh.
+# Unconditional (not gated behind a flag), but every step is a check, so it's a no-op
+# on a box that's already correct and never makes anything worse. sudo is optional,
+# not assumed: each privileged path probes `sudo -n true` first and falls back to a
+# TTY prompt or a manual pointer, so this behaves the same whether or not the box
+# happens to have passwordless sudo at install time.
+ensure_zsh_shell() {
+  local current_shell
+  current_shell=$(getent passwd "$USER" 2>/dev/null | cut -d: -f7)
+  local zsh_path; zsh_path=$(command -v zsh || true)
+  if [[ -z "$zsh_path" ]]; then
+    echo "install.sh: zsh not found on PATH, can't switch the login shell — install zsh first" >&2
+    return 0
+  fi
+  if [[ "$current_shell" == "$zsh_path" ]]; then
+    echo "install.sh: login shell is already $zsh_path, skipping chsh"
+    return 0
+  fi
+  if ! grep -qxF "$zsh_path" /etc/shells 2>/dev/null; then
+    echo "install.sh: $zsh_path isn't listed in /etc/shells, can't chsh to it as a non-root user — add it there first" >&2
+    return 0
+  fi
+  if $DRY_RUN; then
+    echo "+ switch login shell to $zsh_path (takes effect on next login)"
+    return 0
+  fi
+  if sudo -n true 2>/dev/null; then
+    if sudo -n chsh -s "$zsh_path" "$USER"; then
+      echo "install.sh: switched login shell to $zsh_path (takes effect on next login)"
+    else
+      echo "install.sh: 'sudo chsh' failed — switch manually with: chsh -s $zsh_path" >&2
+    fi
+  elif [[ -t 0 ]]; then
+    echo "install.sh: switching login shell to $zsh_path (may prompt for your password)"
+    chsh -s "$zsh_path" || echo "install.sh: chsh failed — switch manually with: chsh -s $zsh_path" >&2
+  else
+    echo "install.sh: no passwordless sudo and no TTY to prompt on — switch manually with: chsh -s $zsh_path" >&2
+  fi
+}
+
 echo "== zsh-config install ($REPO_DIR) =="
 $DRY_RUN && echo "(dry run — no changes will be made)"
 
@@ -257,6 +310,33 @@ if $DISPLAY_HOST; then
     echo "install.sh: ~/.zshrc.local already sets ZSH_CONFIG_DISPLAY_HOST, leaving it alone"
   fi
 fi
+
+### --terminator-font: write a minimal Terminator profile selecting a Nerd Font, only
+### if no config exists yet — never rewrite a real one (ConfigObj's nested format isn't
+### worth risking a bad in-place edit over; a message is safer than a corrupted config).
+if $SET_TERMINATOR_FONT; then
+  terminator_config="$HOME/.config/terminator/config"
+  if [[ -e "$terminator_config" ]]; then
+    if grep -qs '^\s*font\s*=' "$terminator_config"; then
+      echo "install.sh: $terminator_config already exists and sets a font, leaving it alone"
+    else
+      echo "install.sh: $terminator_config already exists — add manually under [profiles][[default]]: use_system_font = False / font = $TERMINATOR_FONT"
+    fi
+  elif $DRY_RUN; then
+    echo "+ write $terminator_config selecting font \"$TERMINATOR_FONT\""
+  else
+    run mkdir -p "$(dirname "$terminator_config")"
+    cat >"$terminator_config" <<EOF
+[profiles]
+  [[default]]
+    use_system_font = False
+    font = $TERMINATOR_FONT
+EOF
+    echo "install.sh: wrote $terminator_config (font: $TERMINATOR_FONT) — restart Terminator to pick it up"
+  fi
+fi
+
+ensure_zsh_shell
 
 echo "== done =="
 [[ -d "$BACKUP_DIR" ]] && ! $DRY_RUN && echo "Originals backed up to: $BACKUP_DIR"

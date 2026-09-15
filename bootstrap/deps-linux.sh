@@ -14,26 +14,34 @@ set -euo pipefail
 # ~/.zshenv) doesn't report a fresh install as still missing.
 export PATH="$HOME/.local/bin:$PATH"
 
-sudo apt-get update
-sudo apt-get install -y zsh git tmux fzf ripgrep bat fd-find
+# sudo is optional, not assumed: on a box without passwordless sudo `sudo apt-get
+# update` would die under set -e on its very first command, so the whole apt block is
+# skipped rather than attempted when the probe fails. install_release below (needs no
+# privileges — installs to ~/.local/bin) is exactly the fallback for that case.
+if sudo -n true 2>/dev/null; then
+  sudo apt-get update
+  sudo apt-get install -y zsh git tmux fzf ripgrep bat fd-find
 
-# Ubuntu's fd binary is fd-find/fdfind; alias it if fd isn't already on PATH.
-if ! command -v fd >/dev/null && command -v fdfind >/dev/null; then
-  mkdir -p "$HOME/.local/bin"
-  ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
+  # Ubuntu's fd binary is fd-find/fdfind; alias it if fd isn't already on PATH.
+  if ! command -v fd >/dev/null && command -v fdfind >/dev/null; then
+    mkdir -p "$HOME/.local/bin"
+    ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
+  fi
+
+  # Ubuntu's bat binary is batcat; same treatment.
+  if ! command -v bat >/dev/null && command -v batcat >/dev/null; then
+    mkdir -p "$HOME/.local/bin"
+    ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
+  fi
+
+  # apt-get install failing for a package that isn't in this distro's archive (lsd,
+  # git-delta, zoxide on 20.04) is expected — don't let set -e kill the script over it.
+  for pkg in lsd git-delta zoxide; do
+    sudo apt-get install -y "$pkg" 2>/dev/null || true
+  done
+else
+  echo "bootstrap: no passwordless sudo, skipping apt — falling back to GitHub releases for everything"
 fi
-
-# Ubuntu's bat binary is batcat; same treatment.
-if ! command -v bat >/dev/null && command -v batcat >/dev/null; then
-  mkdir -p "$HOME/.local/bin"
-  ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
-fi
-
-# apt-get install failing for a package that isn't in this distro's archive (lsd,
-# git-delta, zoxide on 20.04) is expected — don't let set -e kill the script over it.
-for pkg in lsd git-delta zoxide; do
-  sudo apt-get install -y "$pkg" 2>/dev/null || true
-done
 
 # probe TOOL: does the installed binary support the flag this config actually needs?
 # (not "is it new enough" — the flag is what matters, and this is what's testable.)
