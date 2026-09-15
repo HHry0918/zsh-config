@@ -9,6 +9,11 @@
 # already-capable tools are left alone.
 set -euo pipefail
 
+# This script's own job is to populate ~/.local/bin — probe it, not just the inherited
+# PATH, so a non-interactive session (e.g. `ssh host cmd`, which never sources
+# ~/.zshenv) doesn't report a fresh install as still missing.
+export PATH="$HOME/.local/bin:$PATH"
+
 sudo apt-get update
 sudo apt-get install -y zsh git tmux fzf ripgrep bat fd-find
 
@@ -45,6 +50,13 @@ probe() {
 # install_release TOOL REPO BINNAME — fetch the latest linux-x86_64 release tarball,
 # find BINNAME inside it (wherever the archive's internal layout puts it), install to
 # ~/.local/bin. Skipped entirely if `probe TOOL` already passes.
+#
+# musl is tried before gnu: musl builds are statically linked and run on any glibc,
+# whereas a gnu build is linked against whatever glibc the project's CI happened to use
+# — which can be newer than an older LTS's, in which case the binary resolves and
+# downloads fine but refuses to *run* (found the hard way: delta's gnu release needs
+# glibc >= 2.32; Ubuntu 20.04 ships 2.31). So each candidate is verified by actually
+# executing it, not just by successfully downloading it.
 install_release() {
   local tool="$1" repo="$2" binname="$3"
   if probe "$tool"; then
@@ -56,9 +68,8 @@ install_release() {
     return 1
   fi
   echo "bootstrap: fetching $tool from github.com/$repo releases..."
-  local tmp url
-  tmp=$(mktemp -d)
-  url=$(python3 - "$repo" <<'PY'
+  local urls
+  urls=$(python3 - "$repo" <<'PY'
 import json, sys, urllib.request
 repo = sys.argv[1]
 req = urllib.request.Request(
@@ -66,32 +77,36 @@ req = urllib.request.Request(
     headers={"User-Agent": "zsh-config-bootstrap"},
 )
 data = json.load(urllib.request.urlopen(req, timeout=15))
-names = [a["browser_download_url"] for a in data["assets"]
-         if a["name"].endswith("x86_64-unknown-linux-gnu.tar.gz")]
-if not names:
-    names = [a["browser_download_url"] for a in data["assets"]
-             if a["name"].endswith("x86_64-unknown-linux-musl.tar.gz")]
-print(names[0] if names else "")
+assets = {a["name"]: a["browser_download_url"] for a in data["assets"]}
+for suffix in ("x86_64-unknown-linux-musl.tar.gz", "x86_64-unknown-linux-gnu.tar.gz"):
+    for name, url in assets.items():
+        if name.endswith(suffix):
+            print(url)
 PY
   )
-  if [[ -z "$url" ]]; then
+  if [[ -z "$urls" ]]; then
     echo "bootstrap: couldn't resolve a linux-x86_64 release asset for $tool — install manually from https://github.com/$repo/releases" >&2
-    rm -rf "$tmp"
     return 1
   fi
-  curl -fsSL "$url" -o "$tmp/asset.tar.gz"
-  tar -xzf "$tmp/asset.tar.gz" -C "$tmp"
-  local found
-  found=$(find "$tmp" -type f -name "$binname" | head -1)
-  if [[ -z "$found" ]]; then
-    echo "bootstrap: downloaded $tool but couldn't find a '$binname' binary inside the archive" >&2
+  local url tmp found
+  while IFS= read -r url; do
+    [[ -z "$url" ]] && continue
+    tmp=$(mktemp -d)
+    curl -fsSL "$url" -o "$tmp/asset.tar.gz"
+    tar -xzf "$tmp/asset.tar.gz" -C "$tmp"
+    found=$(find "$tmp" -type f -name "$binname" | head -1)
+    if [[ -n "$found" ]] && chmod +x "$found" && "$found" --help >/dev/null 2>&1; then
+      mkdir -p "$HOME/.local/bin"
+      install -m 755 "$found" "$HOME/.local/bin/$binname"
+      rm -rf "$tmp"
+      echo "bootstrap: installed $tool ($(basename "$url")) -> $HOME/.local/bin/$binname"
+      return 0
+    fi
+    echo "bootstrap: $(basename "$url") didn't produce a runnable $binname, trying next candidate" >&2
     rm -rf "$tmp"
-    return 1
-  fi
-  mkdir -p "$HOME/.local/bin"
-  install -m 755 "$found" "$HOME/.local/bin/$binname"
-  rm -rf "$tmp"
-  echo "bootstrap: installed $tool -> $HOME/.local/bin/$binname"
+  done <<<"$urls"
+  echo "bootstrap: no working release asset found for $tool — install manually from https://github.com/$repo/releases" >&2
+  return 1
 }
 
 install_release bat    sharkdp/bat       bat
