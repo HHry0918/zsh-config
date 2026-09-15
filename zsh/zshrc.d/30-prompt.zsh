@@ -13,13 +13,24 @@ prompt_end() {
 
 # agnoster.zsh-theme's own prompt_context (styled, root-highlighted, SSH-aware) already
 # renders "user@host" — hidden by default (single-workstation setups don't need it), but
-# left in place when ZSH_CONFIG_DISPLAY_HOST is set (install.sh --display-host writes
-# that into ~/.zshrc.local), which is useful on a shared fleet of similarly-named boxes.
-if [[ -z $ZSH_CONFIG_DISPLAY_HOST ]]; then
-  prompt_context() {
-      echo ""
-  }
-fi
+# shown when ZSH_CONFIG_DISPLAY_HOST is set (install.sh --display-host writes that into
+# ~/.zshrc.local), which is useful on a shared fleet of similarly-named boxes.
+#
+# The check happens at prompt-render time, not here at load time: ~/.zshrc.local is
+# sourced LAST by zsh/zshrc, after this file, so the variable doesn't exist yet if this
+# just did `if [[ -z $ZSH_CONFIG_DISPLAY_HOST ]]; then override; fi` here directly —
+# that would always take the "unset" branch regardless of the flag. Preserving the
+# theme's original function and dispatching to it inside the new one sidesteps the
+# ordering issue entirely, since the dispatch decision is deferred to when the prompt is
+# actually drawn (well after ~/.zshrc.local has run).
+functions[_agnoster_orig_prompt_context]=$functions[prompt_context]
+prompt_context() {
+  if [[ -n $ZSH_CONFIG_DISPLAY_HOST ]]; then
+    _agnoster_orig_prompt_context
+  else
+    echo ""
+  fi
+}
 
 : ${AGNOSTER_GIT_DIRTY_FG:=${CURRENT_FG}}
 : ${AGNOSTER_BZR_DIRTY_FG:=${CURRENT_BG}}
