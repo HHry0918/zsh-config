@@ -7,11 +7,11 @@
 # version reads "config", only >=1.2.3 also reads "config.ghostty". Don't link both;
 # Ghostty loads both if both exist, duplicating any repeated key.
 #
-# Ghostty embeds JetBrains Mono and has built-in Nerd Font glyphs, so the Powerline
-# prompt and `lsd --icon=always` render with zero font config here. font-family below
-# is set anyway for consistency with the JetBrainsMono Nerd Font install.sh downloads
-# for other macOS apps (VS Code, iTerm) that don't have that built in.
-font-family = JetBrainsMono Nerd Font Mono
+# Ghostty has built-in Nerd Font glyphs, so the Powerline prompt and `lsd --icon=always`
+# render with zero font config here. font-family below is set anyway for consistency
+# with the MesloLGS NF install.sh downloads for other macOS apps (VS Code, iTerm) that
+# don't have Nerd Font glyphs built in.
+font-family = MesloLGS NF
 font-size = 13
 
 # macOS has no distinct Alt key; without this, Option-based keybindings expected by
