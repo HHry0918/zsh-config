@@ -1,30 +1,595 @@
-# Thin loader. All actual configuration lives in zshrc.d/, split by concern so a
-# per-machine difference (e.g. macOS) means adding one file, not forking this whole one.
-#
+# Single-file config. Historically split into zshrc.d/00-*..55-* modules; flattened per
+# explicit request, using the live-running config on the primary workstation as the base
+# and merging back functionality the live file had drifted away from. Section banners
+# below name the old module a block came from, for `git blame`/grep continuity.
+
+### first-run bootstrap (may print / clone — must run before p10k's instant-prompt block
+### below, since that block's own rule is "anything that may need console input or print
+### to the console goes above it")
+if [[ ! -f $HOME/.local/share/zinit/zinit.git/zinit.zsh ]]; then
+    print -P "%F{33} %F{220}Installing %F{33}ZDHARMA-CONTINUUM%F{220} Initiative Plugin Manager (%F{33}zdharma-continuum/zinit%F{220})…%f"
+    command mkdir -p "$HOME/.local/share/zinit" && command chmod g-rwX "$HOME/.local/share/zinit"
+    command git clone https://github.com/zdharma-continuum/zinit "$HOME/.local/share/zinit/zinit.git" && \
+        print -P "%F{33} %F{34}Installation successful.%f%b" || \
+        print -P "%F{160} The clone has failed.%f%b"
+fi
+
+# Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
+# Initialization code that may require console input (password prompts, [y/n]
+# confirmations, etc.) must go above this block; everything else may go below.
+if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+fi
+
+# Set name of the theme to load --- if set to "random", it will
+# load a random theme each time Oh My Zsh is loaded, in which case,
+# to know which specific one was loaded, run: echo $RANDOM_THEME
 # See https://github.com/ohmyzsh/ohmyzsh/wiki/Themes
-ZSH_THEME="agnoster"
+#
+# Powerlevel10k is the default; ZSH_CONFIG_THEME=agnoster (or a missing p10k clone — e.g.
+# install.sh's powerlevel10k clone failed) falls back to the vendored agnoster theme.
+if [[ "${ZSH_CONFIG_THEME:-p10k}" == agnoster || ! -d "$HOME/.oh-my-zsh/custom/themes/powerlevel10k" ]]; then
+  ZSH_THEME="agnoster"
+else
+  ZSH_THEME="powerlevel10k/powerlevel10k"
+fi
+
+# Set list of themes to pick from when loading at random
+# Setting this variable when ZSH_THEME=random will cause zsh to load
+# a theme from this variable instead of looking in $ZSH/themes/
+# If set to an empty array, this variable will have no effect.
+#ZSH_THEME_RANDOM_CANDIDATES=( "robbyrussell" "agnoster" )
 
 # Uncomment the following line to use case-sensitive completion.
 CASE_SENSITIVE="true"
 
+# Uncomment the following line to use hyphen-insensitive completion.
+# Case-sensitive completion must be off. _ and - will be interchangeable.
+# HYPHEN_INSENSITIVE="true"
+
+# Uncomment one of the following lines to change the auto-update behavior
+# zstyle ':omz:update' mode disabled  # disable automatic updates
+# zstyle ':omz:update' mode auto      # update automatically without asking
 zstyle ':omz:update' mode reminder  # just remind me to update when it's time
+
+# Uncomment the following line to change how often to auto-update (in days).
 zstyle ':omz:update' frequency 7
+
+# Uncomment the following line if pasting URLs and other text is messed up.
+# DISABLE_MAGIC_FUNCTIONS="true"
+
+# Uncomment the following line to disable colors in ls.
+# DISABLE_LS_COLORS="true"
+
+# Uncomment the following line to disable auto-setting terminal title.
+# DISABLE_AUTO_TITLE="true"
 
 # Uncomment the following line to enable command auto-correction.
 ENABLE_CORRECTION="true"
 
+# Uncomment the following line to display red dots whilst waiting for completion.
+# You can also set it to another string to have that shown instead of the default red dots.
+# e.g. COMPLETION_WAITING_DOTS="%F{yellow}waiting...%f"
 # Caution: this setting can cause issues with multiline prompts in zsh < 5.7.1 (see #5765)
 COMPLETION_WAITING_DOTS="true"
 
+# Uncomment the following line if you want to disable marking untracked files
+# under VCS as dirty. This makes repository status check for large repositories
+# much, much faster.
+# DISABLE_UNTRACKED_FILES_DIRTY="true"
+
+# Uncomment the following line if you want to change the command execution time
+# stamp shown in the history command output.
+# You can set one of the optional three formats:
+# "mm/dd/yyyy"|"dd.mm.yyyy"|"yyyy-mm-dd"
+# or set a custom format using the strftime function format specifications,
+# see 'man strftime' for details.
 HIST_STAMPS="dd/mm/yyyy HH:MM:SS"
 
+# Would you like to use another custom folder than $ZSH/custom?
+# ZSH_CUSTOM=/path/to/new-custom-folder
+
+### _zcache helper
+# usage: _zcache <name> <cmd...>  — evals cached output, regenerates if binary is newer.
+# Generates to a temp file first and requires exit 0 + non-empty output before installing
+# it as the cache: a renamed/removed flag on the underlying tool (e.g. procs 0.14 renaming
+# --completion-out to --gen-completion-out) must degrade to "no completion" on the next
+# start, not leave a permanently-stale, newer-than-binary cache sourced on every startup.
+_zcache() {
+  local name=$1; shift
+  local f=~/.cache/zsh/$name.zsh bin=${commands[$1]}
+  [[ -n $bin ]] || return
+  if [[ ! -s $f || $f -ot $bin ]]; then
+    mkdir -p ~/.cache/zsh
+    local tmp; tmp=$(mktemp "${f}.XXXXXX")
+    if "$@" >| "$tmp" && [[ -s $tmp ]]; then
+      mv "$tmp" "$f"
+    else
+      rm -f "$tmp"
+    fi
+  fi
+  [[ -s $f ]] && source $f
+}
+
 # Which plugins would you like to load?
-# Standard plugins can be found in $ZSH/plugins/. Custom plugins in $ZSH_CUSTOM/plugins/.
+# Standard plugins can be found in $ZSH/plugins/
+# Custom plugins may be added to $ZSH_CUSTOM/plugins/
+# Example format: plugins=(rails git textmate ruby lighthouse)
+# Add wisely, as too many plugins slow down shell startup.
+#
+# zsh-interactive-cd captures whatever Tab was bound to at its own load time (here,
+# fzf-tab's widget, since it loads first in this list) and falls back to it for every
+# command except a literal `cd`, which it handles itself with its own lsd-preview picker
+# (_zic_complete, below) — this is why the fzf-tab zstyle for `cd` is deleted rather than
+# kept: it would never fire. fzf-tab still drives Tab-completion for zoxide's `z` and
+# everything else (git branches, docker containers, etc).
 plugins=(zoxide fzf fzf-tab zsh-interactive-cd tmux alias-finder aliases)
 
-for f in ~/.zshrc.d/*.zsh; do
-  source "$f"
-done
+### fzf env — must be set before Oh My Zsh's fzf plugin runs `fzf --zsh` further down
+# (zinit/oh-my-zsh load below). Do NOT source a generated ~/.fzf.zsh or call `fzf --zsh`
+# here yourself — it would override zsh-interactive-cd's Tab binding (see _zic_complete's
+# own comment further down). This block only exports variables, read at invocation time
+# regardless of source order, and OMZ's fzf plugin (gated on fzf >= 0.48.0) does the
+# actual shell integration.
+export FZF_TMUX_HEIGHT=100%
 
-# Per-machine escape hatch, not tracked by this repo.
-[[ -f ~/.zshrc.local ]] && source ~/.zshrc.local
+if command -v fd >/dev/null; then
+  export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --strip-cwd-prefix'
+  export FZF_CTRL_T_COMMAND='fd --type f --type d --hidden --follow --strip-cwd-prefix'
+  export FZF_ALT_C_COMMAND='fd --type d --hidden --follow --strip-cwd-prefix'
+fi
+
+export FZF_DEFAULT_OPTS="
+--style full
+--border --padding 1,2
+--border-label ' FZF MENU ' --input-label ' Input ' --header-label ' Results '
+--color 'border:#aaaaaa,label:#cccccc'
+--color 'preview-border:#9999cc,preview-label:#ccccff'
+--color 'list-border:#669966,list-label:#99cc99'
+--color 'input-border:#996666,input-label:#ffcccc'
+--color 'header-border:#6699cc,header-label:#99ccff'
+--bind 'result:transform-list-label:
+        if [[ -z \$FZF_QUERY ]]; then
+          echo \" \$FZF_MATCH_COUNT items \"
+        else
+          echo \" \$FZF_MATCH_COUNT matches for [\$FZF_QUERY] \"
+        fi
+        '
+"
+
+if command -v lsd >/dev/null; then
+  _fzf_path_preview='[[ -d {} ]] && lsd -la --header --tree --depth 1 --color=always --icon=auto --group-directories-first --git {} || fzf-preview.sh {}'
+
+  export FZF_CTRL_T_OPTS="
+--preview '${_fzf_path_preview}'
+--bind 'focus:transform-preview-label:[[ -n {} ]] && printf \" Previewing [%s] \" {}'
+--bind 'focus:+transform-header:([[ -d {} ]] && lsd -ld --color=always --icon=auto --git {} || file --brief {}) 2>/dev/null || echo \"No path selected\"'
+"
+
+  export FZF_ALT_C_OPTS="$FZF_CTRL_T_OPTS"
+  export FZF_COMPLETION_PATH_OPTS="$FZF_CTRL_T_OPTS"
+  export FZF_COMPLETION_DIR_OPTS="$FZF_CTRL_T_OPTS"
+fi
+
+_fzf_compgen_path() {
+  fd --type f --type d --hidden --follow --strip-cwd-prefix . "$1"
+}
+
+_fzf_compgen_dir() {
+  fd --type d --hidden --follow --strip-cwd-prefix . "$1"
+}
+
+### zinit array + annexes + oh-my-zsh load. Order is
+### load-bearing, do not reshuffle: zsh-completions must register before fpath is
+### extended and oh-my-zsh sourced; `zinit cdreplay` replays compdefs queued during
+### oh-my-zsh's own load; syntax-highlighting/autosuggestions must load last, since they
+### wrap widgets other plugins define. (The installer bootstrap itself is hoisted above
+### the p10k instant-prompt preamble at the top of this file.)
+typeset -gA ZINIT
+ZINIT[LIST_COMMAND]='lsd --color=always --tree --icon=always --depth 3'
+source "$HOME/.local/share/zinit/zinit.git/zinit.zsh"
+autoload -Uz _zinit
+(( ${+_comps} )) && _comps[zinit]=_zinit
+
+# Load a few important annexes, without Turbo (currently required for annexes)
+zinit light-mode for \
+    zdharma-continuum/zinit-annex-as-monitor \
+    zdharma-continuum/zinit-annex-bin-gem-node \
+    zdharma-continuum/zinit-annex-patch-dl \
+    zdharma-continuum/zinit-annex-rust
+
+zinit light zsh-users/zsh-completions
+
+# Load completions
+fpath=(~/.zfunc $fpath)
+
+source $ZSH/oh-my-zsh.sh
+zinit cdreplay -q
+
+# OSC 52 clipcopy for headless/ssh sessions. oh-my-zsh's clipboard.zsh only knows how to
+# talk to a clipboard daemon on the machine zsh itself is running on (pbcopy, xclip/xsel
+# gated on $DISPLAY, wl-copy, ...) — none of that exists on a box you're ssh'd into, and
+# even if xclip were installed there it would write to that box's own X clipboard, not
+# the one you paste into locally. OSC 52 instead hands the payload to the terminal
+# emulator as an escape sequence; the terminal (running on the machine you're physically
+# at) puts it on the local clipboard, no daemon or packages required, and it survives any
+# number of ssh hops. Defined after sourcing oh-my-zsh so it overrides its lazy
+# clipcopy/clippaste stubs (clipboard.zsh:103) rather than being overridden by them.
+# Left alone on a real desktop session (DISPLAY/WAYLAND_DISPLAY set, or macOS) — there
+# oh-my-zsh's native pbcopy/xclip/wl-copy path already works and is preferable.
+if [[ -z ${DISPLAY:-} && -z ${WAYLAND_DISPLAY:-} && $OSTYPE != darwin* ]]; then
+  function clipcopy() {
+    emulate -L zsh
+    local data b64
+    data=$(cat "${1:-/dev/stdin}"; echo x)
+    data=${data%x}
+    b64=$(print -rn -- "$data" | base64 | tr -d '\n')
+    # xterm's OSC 52 handler caps the escape sequence at 100000 bytes total; refuse well
+    # before that rather than silently truncating the clipboard contents.
+    if (( ${#b64} > 74000 )); then
+      print -u2 "clipcopy: input too large for OSC 52 (${#b64} b64 bytes > 74000 limit)"
+      return 1
+    fi
+    # Write to the tty, not stdout, so `cmd | clipcopy` doesn't leak the escape sequence
+    # into whatever comes after clipcopy in the pipeline.
+    print -n -- $'\e]52;c;'"$b64"$'\a' > /dev/tty
+  }
+  # No clippaste here: the OSC 52 read form (\e]52;c;?\a) is disabled by default in
+  # essentially every terminal emulator as an anti-exfiltration measure, so there's
+  # nothing reliable to call. oh-my-zsh's tmux-buffer fallback (clipboard.zsh:85) still
+  # applies when inside tmux; outside tmux, clippaste keeps failing as before.
+fi
+
+zinit light zsh-users/zsh-syntax-highlighting
+zinit light zsh-users/zsh-autosuggestions
+
+# Keep zsh-interactive-cd directory picker compact and preview nested paths correctly.
+_zic_complete() {
+  setopt localoptions nonomatch
+  local l matches fzf fzf_bindings tokens base preview_base
+
+  l=$(_zic_list_generator $@)
+
+  if [ -z "$l" ]; then
+    zle ${__zic_default_completion:-expand-or-complete}
+    return
+  fi
+
+  preview_base="${(Q)@[-1]}"
+  if [[ "$preview_base" != */ ]]; then
+    if [[ "$preview_base" == */* ]]; then
+      preview_base="$(dirname -- "$preview_base")"
+      if [[ ${preview_base[-1]} != / ]]; then
+        preview_base="$preview_base/"
+      fi
+    else
+      preview_base=""
+    fi
+  fi
+
+  fzf=$(FZF_TMUX_HEIGHT=40% __zic_fzf_prog)
+  fzf_bindings=$(FZF_TMUX_HEIGHT=40% __zic_fzf_bindings)
+
+  if [ $(echo $l | wc -l) -eq 1 ]; then
+    matches=${(q)l}
+  else
+    matches=$(echo $l \
+        | ZIC_PREVIEW_BASE="$preview_base" FZF_TMUX_HEIGHT=40% FZF_DEFAULT_OPTS="--height 40% \
+          --reverse $FZF_DEFAULT_OPTS \
+          --preview 'lsd -la --header --tree --depth 1 --color=always --icon=auto --group-directories-first --git -- \"\${ZIC_PREVIEW_BASE}\"{}' \
+          --bind '${fzf_bindings}'" ${=fzf} \
+        | while read -r item; do
+      echo -n "${(q)item} "
+    done)
+  fi
+
+  matches=${matches% }
+  if [ -n "$matches" ]; then
+    tokens=(${(z)LBUFFER})
+    base="${(Q)@[-1]}"
+    if [[ "$base" != */ ]]; then
+      if [[ "$base" == */* ]]; then
+        base="$(dirname -- "$base")"
+        if [[ ${base[-1]} != / ]]; then
+          base="$base/"
+        fi
+      else
+        base=""
+      fi
+    fi
+    LBUFFER="${tokens[1]} "
+    if [ -n "$base" ]; then
+      base="${(q)base}"
+      if [ "${tokens[2][1]}" = "~" ]; then
+        base="${base/#$HOME/~}"
+      fi
+      LBUFFER="${LBUFFER}${base}"
+    fi
+    LBUFFER="${LBUFFER}${matches}/"
+  fi
+  zle redisplay
+  typeset -f zle-line-init >/dev/null && zle zle-line-init
+}
+
+# bat-help accept-line widget: pipe trailing -h/--help through bat without global aliases.
+# - </dev/null matters: some CLIs (claude, node) snapshot their stdin tty's termios at
+#   start and restore it on exit, which clobbers less's raw mode when they run concurrently
+#   in the pipe and leaves the pager deaf to keys and wheel. No tty on stdin -> no snapshot.
+# - Bare -h is left alone for tools where it means "human-readable sizes", not help.
+# - Trailing whitespace/newlines (bracketed paste) are ignored when matching.
+if [[ -o interactive ]]; then
+  _bat_help_accept_line() {
+    setopt localoptions extendedglob
+    local line=${BUFFER%%[[:space:]]#}
+    if [[ $line != *'| bat'* ]] && [[ $line =~ '(^|[[:space:]])(-h|--help)$' ]]; then
+      local -a human_h=(ls du df free sort tree)
+      local -a w=(${(z)${line##*[|;&]}})          # words of the last simple command
+      while (( $#w )) && [[ $w[1] == (*=*|sudo|command|builtin|noglob|nocorrect|exec|time|env) ]]; do shift w; done
+      if [[ $line == *--help ]] || (( ! $human_h[(Ie)${w[1]:t}] )); then
+        BUFFER="${line} 2>&1 </dev/null | bat --language=help --style=plain"
+      fi
+    fi
+    zle .accept-line
+  }
+  zle -N accept-line _bat_help_accept_line
+fi
+
+# User configuration
+
+# export MANPATH="/usr/local/man:$MANPATH"
+
+# Compilation flags
+# export ARCHFLAGS="-arch $(uname -m)"
+
+command -v zoxide >/dev/null && eval "$(zoxide init --cmd cd zsh)"
+
+# Set personal aliases, overriding those provided by Oh My Zsh libs,
+# plugins, and themes. Aliases can be placed here, though Oh My Zsh
+# users are encouraged to define aliases within a top-level file in
+# the $ZSH_CUSTOM folder, with .zsh extension. Examples:
+# - $ZSH_CUSTOM/aliases.zsh
+# - $ZSH_CUSTOM/macos.zsh
+# For a full list of active aliases, run `alias`.
+#
+# aliases
+alias zshconfig="mate ~/.zshrc"
+alias ohmyzsh="mate ~/.oh-my-zsh"
+
+command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"
+# Lazy pyenv, same pattern as the nvm stub further down: the shim PATH entry is cheap
+# (no subprocess) and kept eager so plain `python`/`pip` resolve correctly even before
+# `pyenv` itself is ever invoked; only the expensive completion/hook generation
+# (`pyenv init -`, `pyenv virtualenv-init -`) is deferred to first real use.
+[[ -d $PYENV_ROOT/shims ]] && export PATH="$PYENV_ROOT/shims:$PATH"
+pyenv() {
+  unfunction pyenv
+  _zcache pyenv-init pyenv init - --no-rehash zsh
+  _zcache pyenv-virtualenv-init pyenv virtualenv-init - zsh
+  pyenv "$@"
+}
+
+### History
+HISTSIZE=5000
+HISTFILE=~/.zsh_history
+SAVEHIST=$HISTSIZE
+HISTDUP=erase
+setopt appendhistory
+setopt sharehistory
+setopt hist_ignore_space
+setopt hist_ignore_all_dups
+setopt hist_save_no_dups
+setopt hist_ignore_dups
+setopt hist_find_no_dups
+
+# Completion styling
+zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'
+zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
+zstyle ':completion:*' menu no
+zstyle ':fzf-tab:complete:__zoxide_z:*' fzf-preview 'lsd --color=always --icon=always --group-directories-first $realpath'
+
+# Oh My Zsh's fzf plugin already sets up fzf. Re-sourcing fzf here overrides
+# zsh-interactive-cd's Tab binding.
+
+### dircolors
+# Change dircolors. GNU-only; macOS coreutils installs it as gdircolors unless the
+# gnubin shim in zsh/zshenv already put GNU coreutils first on PATH.
+if command -v dircolors >/dev/null; then
+  eval "$(dircolors ~/.dircolors)"
+elif command -v gdircolors >/dev/null; then
+  eval "$(gdircolors ~/.dircolors)"
+fi
+
+### agnoster overrides. Guarded: under p10k, prompt_context
+### doesn't exist as a theme function, so capturing/wrapping it here would install a
+### broken one — this whole block only matters when agnoster is the active theme.
+if [[ $ZSH_THEME == agnoster ]]; then
+  # End the prompt, closing any open segments
+  prompt_end() {
+    if [[ -n $CURRENT_BG ]]; then
+      echo -n " %{%k%F{$CURRENT_BG}%}$SEGMENT_SEPARATOR"
+    else
+      echo -n "%{%k%}"
+    fi
+    echo -n "\n%{%F{$CURRENT_BG}%}$%{%f%}"
+    CURRENT_BG=''
+  }
+
+  # agnoster.zsh-theme's own prompt_context (styled, root-highlighted, SSH-aware) already
+  # renders "user@host" — hidden by default (single-workstation setups don't need it), but
+  # shown when ZSH_CONFIG_DISPLAY_HOST is set (install.sh --display-host writes that into
+  # ~/.zshrc.local), which is useful on a shared fleet of similarly-named boxes.
+  #
+  # The check happens at prompt-render time, not here at load time: ~/.zshrc.local is
+  # sourced LAST by this file, so the variable doesn't exist yet if this just did
+  # `if [[ -z $ZSH_CONFIG_DISPLAY_HOST ]]; then override; fi` here directly — that would
+  # always take the "unset" branch regardless of the flag. Preserving the theme's original
+  # function and dispatching to it inside the new one sidesteps the ordering issue
+  # entirely, since the dispatch decision is deferred to when the prompt is actually drawn.
+  functions[_agnoster_orig_prompt_context]=$functions[prompt_context]
+  prompt_context() {
+    if [[ -n $ZSH_CONFIG_DISPLAY_HOST ]]; then
+      _agnoster_orig_prompt_context
+    else
+      echo ""
+    fi
+  }
+
+  : ${AGNOSTER_GIT_DIRTY_FG:=${CURRENT_FG}}
+  : ${AGNOSTER_BZR_DIRTY_FG:=${CURRENT_BG}}
+  : ${AGNOSTER_HG_CHANGED_FG:=${CURRENT_BG}}
+  : ${AGNOSTER_VENV_FG:=${CURRENT_BG}}
+  : ${AGNOSTER_AWS_FG:=${CURRENT_BG}}
+  : ${AGNOSTER_CONTEXT_BG:='NONE'}
+  : ${AGNOSTER_DIR_BG:=blue}
+fi
+
+### uv / uvx completions
+_zcache uv uv generate-shell-completion zsh
+_zcache uvx uvx --generate-shell-completion zsh
+
+# alias-finder
+zstyle ':omz:plugins:alias-finder' autoload yes # disabled by default
+zstyle ':omz:plugins:alias-finder' longer yes # disabled by default
+zstyle ':omz:plugins:alias-finder' exact yes # disabled by default
+zstyle ':omz:plugins:alias-finder' cheaper yes # disabled by default
+
+### nvm
+# nvm: static PATH to the default node version (fast), lazy-load nvm.sh itself on first `nvm` use.
+if [[ -n $NVM_DIR ]]; then
+  # $(<file) is zsh's own read-file-into-var form; its "no such file" diagnostic is
+  # emitted directly by the shell, not a subprocess, so 2>/dev/null on the expression
+  # can't suppress it (found deploying to a box with no ~/.nvm) — guard with -f instead.
+  _nvm_default_alias=
+  [[ -f "$NVM_DIR/alias/default" ]] && _nvm_default_alias=$(<"$NVM_DIR/alias/default")
+  if [[ -d "$NVM_DIR/versions/node/$_nvm_default_alias" ]]; then
+    _nvm_default_version=$_nvm_default_alias
+  else
+    _nvm_default_version=$(ls "$NVM_DIR/versions/node" 2>/dev/null | sort -V | tail -1)
+  fi
+  [[ -n $_nvm_default_version ]] && PATH="$NVM_DIR/versions/node/$_nvm_default_version/bin:$PATH"
+  unset _nvm_default_alias _nvm_default_version
+
+  nvm() {
+    unfunction nvm
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+    nvm "$@"
+  }
+fi
+
+# bun completions
+[ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
+
+### claude-mem / claude-headroom aliases (merged back; the live
+### config this file was built from had lost these entirely)
+command -v claude >/dev/null && alias claude-raw="$(command -v claude)"
+alias claude-headroom="headroom wrap claude --1m"
+
+# claude-mem worker: resolve the installed version rather than hardcoding it, since the
+# plugin cache path is version-pinned and bumps on update.
+_claude_mem_worker=("$HOME"/.claude/plugins/cache/thedotmack/claude-mem/*/scripts/worker-service.cjs(N))
+[[ -n $_claude_mem_worker[1] ]] && alias claude-mem="$HOME/.bun/bin/bun \"$_claude_mem_worker[1]\""
+unset _claude_mem_worker
+
+find-child-mount() {
+  findmnt -rn -o TARGET | awk -v p="$PWD" 'index($1, p "/") == 1 { sub("^" p "/", "", $1); print $1 }' | xargs
+}
+
+### procs
+# procs 0.14.1+ renamed --completion-out to --gen-completion-out (verified against
+# tagged source, src/opt.rs). Never compare version numbers — probe for the capability:
+# try the new spelling first, fall back to the old one, skip silently if neither exists.
+if command -v procs >/dev/null; then
+  if procs --gen-completion-out zsh >/dev/null 2>&1; then
+    _procs_flag=--gen-completion-out
+  elif procs --completion-out zsh >/dev/null 2>&1; then
+    _procs_flag=--completion-out
+  else
+    _procs_flag=
+  fi
+  if [[ -n $_procs_flag ]]; then
+    _procs_f=~/.cache/zsh/procs.zsh
+    if [[ ! -s $_procs_f || $_procs_f -ot ${commands[procs]} ]]; then
+      mkdir -p ~/.cache/zsh
+      _procs_tmp=$(mktemp "${_procs_f}.XXXXXX")
+      if procs $_procs_flag zsh | command sed 's/^_procs "\$@"$/compdef _procs procs/' >| "$_procs_tmp" \
+          && [[ -s $_procs_tmp ]]; then
+        # No trailing $ anchor above (unlike the original): a generator-output change
+        # that no longer matches just means the compdef line below is appended instead
+        # of substituted in place — degrades to "still works", not "silently broken".
+        grep -q '^compdef _procs procs$' "$_procs_tmp" || print -r -- 'compdef _procs procs' >>| "$_procs_tmp"
+        mv "$_procs_tmp" $_procs_f
+      else
+        rm -f "$_procs_tmp"
+      fi
+    fi
+    [[ -s $_procs_f ]] && source $_procs_f
+  fi
+  unset _procs_flag _procs_f _procs_tmp
+fi
+
+### re-promote Homebrew's GNU coreutils (gnubin) above the
+### system BSD tools — undoes damage done between .zshenv and here on macOS login shells.
+#
+# Ghostty (like Terminal.app) starts every new window as a LOGIN shell on macOS, so the
+# startup order is .zshenv -> /etc/zprofile -> .zprofile -> .zshrc (this file). /etc/
+# zprofile runs Apple's `path_helper`, which rewrites PATH to put /usr/bin:/bin:/usr/sbin
+# :/sbin first — *after* zsh/zshenv already prepended the gnubin shim, silently demoting
+# it back behind the BSD `sed`, `dircolors`, etc. these dotfiles assume are GNU. This runs
+# after the Homebrew shellenv eval below on purpose: that eval also rewrites PATH
+# (re-prepending $prefix/bin/sbin), so gnubin must be re-promoted *after* it, not before.
+#
+# Re-running the exact same prepend as zsh/zshenv is safe and not a duplicate: PATH has
+# `typeset -U` set there, which keeps only the leftmost occurrence of a path already
+# present — so this promotes gnubin back to the front rather than adding a second copy.
+if [[ "$OSTYPE" == darwin* ]]; then
+  for _brew_prefix in /opt/homebrew /usr/local; do
+    if [[ -x "$_brew_prefix/bin/brew" ]]; then
+      export PATH="$_brew_prefix/bin:$_brew_prefix/sbin:$PATH"
+      for _gnubin in "$_brew_prefix"/opt/*/libexec/gnubin(N); do
+        [[ -d "$_gnubin" ]] && export PATH="$_gnubin:$PATH"
+      done
+      break
+    fi
+  done
+  unset _brew_prefix _gnubin
+fi
+
+# Nix, if installed
+if [ -e "$HOME/.nix-profile/etc/profile.d/nix.sh" ]; then
+  . "$HOME/.nix-profile/etc/profile.d/nix.sh"
+fi
+
+### Homebrew: linuxbrew, Apple Silicon, or Intel macOS, first
+### one found wins.
+for _brew in /home/linuxbrew/.linuxbrew/bin/brew /opt/homebrew/bin/brew /usr/local/bin/brew; do
+  if [[ -x $_brew ]]; then
+    eval "$($_brew shellenv zsh)"
+    break
+  fi
+done
+unset _brew
+
+# --display-host: p10k decides whether to show "user@host" while ~/.p10k.zsh sources
+# below (its own config is compiled once, not re-read later — see the conditional at
+# that file's context section), so ZSH_CONFIG_DISPLAY_HOST must be visible *before*
+# that source line. install.sh only ever writes it into ~/.zshrc.local, which normally
+# sources at the very end of this file — too late. Read *only* that one line early,
+# rather than sourcing the whole (arbitrary, user-owned) file twice.
+if [[ -f ~/.zshrc.local ]]; then
+  ZSH_CONFIG_DISPLAY_HOST=$(grep -oP '(?<=^export ZSH_CONFIG_DISPLAY_HOST=).*' ~/.zshrc.local 2>/dev/null | tail -1)
+  [[ -n $ZSH_CONFIG_DISPLAY_HOST ]] && export ZSH_CONFIG_DISPLAY_HOST
+fi
+
+# To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
+if [[ -f ~/.p10k.zsh ]]; then
+  source ~/.p10k.zsh
+fi
+
+# Per-machine escape hatch, not tracked by this repo. `if ... fi`, not `[[ ]] &&`: a bare
+# trailing `&&` makes this file's exit status 1 whenever the file is absent, which
+# surfaces as a stale nonzero $? at the very first interactive prompt.
+if [[ -f ~/.zshrc.local ]]; then
+  source ~/.zshrc.local
+fi
+true

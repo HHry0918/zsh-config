@@ -38,8 +38,6 @@ export LANG=en_AU.UTF-8
 # Preferred editor for local and remote sessions
 export EDITOR='vim'
 
-export ZOXIDE_CMD_OVERRIDE='cd'
-
 # agnoster theme
 export DEFAULT_USER=''
 
@@ -87,7 +85,11 @@ export OMP_WAIT_POLICY=PASSIVE
 # Homebrew
 export HOMEBREW_NO_ANALYTICS=1
 
-# Secrets and work-specific env, sourced last so they can override/extend the above.
-# Neither file is tracked by this repo — see README.md.
-[[ -f ~/.zshenv.secrets ]] && source ~/.zshenv.secrets
-[[ -f ~/.work-env.zsh   ]] && source ~/.work-env.zsh
+# Secrets, sourced last so they can override/extend the above. Not tracked by this
+# repo — see README.md. `if ... fi`, not `[[ ]] &&`: a bare trailing `&&` makes this
+# file's (and thus every nested zsh invocation's) exit status 1 whenever the file is
+# absent, which surfaces as a stale nonzero $? at the very first interactive prompt.
+if [[ -f ~/.zshenv.secrets ]]; then
+  source ~/.zshenv.secrets
+fi
+true
