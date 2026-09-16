@@ -74,10 +74,10 @@
 	colorMoved = default
 [include]
 	path = ~/delta-themes.gitconfig
-[includeIf "gitdir:~/work/"]
-	path = ~/.gitconfig-work
-# Per-machine escape hatch, not tracked by this repo — e.g. a [user] identity on a box
-# that has no ~/work/ (mirrors the ~/.zshrc.local pattern). Git silently ignores a
-# missing include, so this is a no-op where the file is absent.
+# Per-machine escape hatch, not tracked by this repo — holds your [user] identity
+# (name/email), and anything else you want on this box only. Git silently ignores a
+# missing include, so this is a no-op until you create the file:
+#   git config -f ~/.gitconfig.local user.name  "Your Name"
+#   git config -f ~/.gitconfig.local user.email "you@example.com"
 [include]
 	path = ~/.gitconfig.local
