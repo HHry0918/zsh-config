@@ -1,45 +1,156 @@
 # zsh-config
 
-Portable zsh + oh-my-zsh interactive shell setup. Installs onto a fresh Linux workstation
-or macOS box via `./install.sh`.
+Portable zsh + oh-my-zsh interactive shell setup, with Powerlevel10k as the default
+theme (agnoster kept as a fallback). Installs onto a fresh Ubuntu or macOS box via
+`./install.sh`.
 
 ## Layout
 
-- `zsh/` — `.zshenv` (portable env only), `.zshrc` loader + `zshrc.d/` modules, oh-my-zsh
-  custom aliases/theme, `.zfunc/` completions, `.dircolors`.
-- `git/` — `.gitconfig`, commit message template, delta theming, global `.gitignore`.
-- `bat/`, `ripgrep/`, `fd/`, `lsd/`, `tmux/`, `vim/` — per-tool config.
-- `work/` — Morse Micro specific env, aliases, utilities, git identity. Installed only
-  with `--with-work`. **This directory is why the repo stays private.**
-- `bootstrap/` — installs the binaries these configs assume (`fzf`, `delta`, `fd`, `rg`,
-  `bat`, `lsd`, `zoxide`, `tmux`).
+- `zsh/` — `zshenv` (portable env only), single-file `zshrc` (no more `zshrc.d/`
+  modules — flattened into one file), `p10k.zsh` (tracked Powerlevel10k config),
+  oh-my-zsh custom aliases/theme, `zfunc/` completions, `dircolors`.
+- `git/` — `gitconfig` (no `[user]` — see Identity below), commit message template,
+  delta theming, global `.gitignore`, an optional `hooks/pre-commit` (gitleaks-backed
+  secret-commit guard, tracked but never wired up automatically by `install.sh`).
+- `bat/`, `ripgrep/`, `fd/`, `lsd/`, `tmux/`, `vim/`, `ghostty/` — per-tool config.
+- `bootstrap/` — `lib-tools.sh` (shared capability probes + best-effort GitHub-release
+  fetcher, used by both scripts below and by `install.sh`'s tool inventory),
+  `deps-linux.sh` (apt) and `deps-macos.sh` (Homebrew) — installs `fzf`, `delta`, `fd`,
+  `rg`, `bat`, `lsd`, `zoxide`, `tmux`, and on macOS, `python3`, `gitleaks`, and the
+  Ghostty app itself.
 
 ## Install
 
 ```sh
-./install.sh --dry-run --with-work   # preview
-./install.sh --with-work             # actually link
+./install.sh --dry-run   # preview: prints the tool inventory, changes nothing
+./install.sh             # install
 ```
 
-Existing real files at any symlink target are backed up to
-`~/.zsh-config-backup/<UTC timestamp>/` before being replaced — nothing is silently overwritten.
+`install.sh`:
+
+1. Detects the OS (Ubuntu or macOS only — anything else exits with a message) and the
+   terminal app in use (Terminator / Ghostty / other).
+2. Prints an inventory of the 16 tools/frameworks/fonts this config assumes — `zoxide`,
+   `zsh`, oh-my-zsh, `fzf`, `lsd`, `fd`, `ripgrep`, `delta`, `procs`, `tmux`,
+   powerlevel10k, MesloLGS NF, `bat`, `jq`, `git`, `vim` — each
+   marked present (with version) or MISSING.
+3. Waits for you to confirm. It never auto-proceeds without a real TTY — if there's no
+   terminal to confirm on, it stops and says so rather than guessing.
+4. Best-effort installs whatever's missing, then **copies** every dotfile (not
+   symlinks — see below), clones the oh-my-zsh/fzf-tab/powerlevel10k frameworks,
+   installs the MesloLGS NF font, and — on Terminator only — writes a font stanza if no
+   config exists yet, or appends one if a config exists with no `[profiles]` section.
+   It never edits an existing `[profiles]` section.
+5. Switches the login shell to zsh if it isn't already (needs zsh listed in
+   `/etc/shells`; never auto-appends to that file — prints the exact command instead).
+
+Existing files that differ from the repo are backed up to
+`~/.zsh-config-backup/<UTC timestamp>/` before being overwritten — nothing is silently
+lost. Every run is logged to `/tmp/zsh-config-install-<UTC-timestamp>.log`.
+
+### Copy, not symlink
+
+Dotfiles are **copied** into `$HOME`, not symlinked. Re-running `./install.sh` is how
+you apply repo updates to a box — a copy that's identical to the repo's version is a
+silent no-op (fast re-runs), one that differs gets backed up then overwritten. This
+replaced an earlier symlink-based design: live-editing a symlinked dotfile meant
+editing the repo by accident, and every box had detached into real, independent files
+anyway. `zsh/zfunc/` is the one directory case — `install.sh` also writes a manifest
+next to `~/.zfunc/` so a completion file deleted from the repo is removed on the next
+run instead of lingering forever.
+
+### `--backout`
+
+Destructive, full undo: restores every file from the most recent backup, switches the
+login shell back to whatever it was before `install.sh` last switched it (recorded at
+switch time, not guessed), and removes the frameworks `install.sh` clones
+(`~/.oh-my-zsh`, `~/.fzf`, `~/.local/share/zinit`). It requires typing `backout` — a
+plain `[y/N]` is too weak for the `rm -rf` half. Combine with `--dry-run` to preview
+exactly what would be restored/removed without doing it.
+
+### `--display-host`
+
+Both themes hide the `user@host` segment by default (a single workstation doesn't need
+it). `--display-host` un-hides it by writing `ZSH_CONFIG_DISPLAY_HOST=1` into
+`~/.zshrc.local` — useful on a fleet of similarly-named shared boxes.
 
 ## Secrets
 
-`~/.zshenv` traditionally held plaintext credentials (TestRail, DigitalOcean, New Relic,
-Atlassian, Jenkins, Slack tokens, a DB password). None of that is in this repo. Instead:
+`~/.zshenv` traditionally held plaintext credentials (TestRail, DigitalOcean, New
+Relic, Atlassian, Jenkins, Slack tokens, DB passwords, internal hostnames). None of
+that is in this repo:
 
-- `zsh/zshenv` (tracked) holds only portable exports (`PATH`, `EDITOR`, `BAT_THEME`, tool
-  roots, telemetry opt-outs) and sources two files if present:
-  - `~/.zshenv.secrets` (untracked, mode 0600) — copy `zsh/zshenv.secrets.template` and fill
-    in real values.
-  - `~/.work-env.zsh` (untracked when installed without `--with-work`; otherwise a symlink
-    to `work/work-env.zsh`) — non-secret work URLs/paths.
+- `zsh/zshenv` (tracked) holds only portable exports (`PATH`, `EDITOR`, `BAT_THEME`,
+  tool roots, telemetry opt-outs, the macOS Homebrew/gnubin PATH shim) and sources
+  `~/.zshenv.secrets` if present, in `if … fi` form (see the "return code 1" note
+  below for why that matters).
+- `~/.zshenv.secrets` (untracked, mode 0600) — create it yourself, fill in real
+  values, `chmod 600` it. No template ships — the exact variable names are up to you.
+  `.gitignore` covers this file; `install.sh` never writes to it.
 
-To migrate an existing machine's live `~/.zshenv` into this split, run
-`./install.sh --migrate-zshenv` (see script for the backup-first sequence).
+## Identity
+
+Two files this repo never writes to automatically, and never asks `install.sh` to
+guess your identity for — you own them:
+
+- **`git/gitconfig`** ships with `[core]`, `[alias]`, `[color]`, `[delta]`, `[diff]`,
+  etc. tracked, but deliberately **no `[user]` section** — your name/email are never
+  in this repo. `install.sh` prints a pointer if `~/.gitconfig.local` doesn't already
+  set them:
+  ```sh
+  git config -f ~/.gitconfig.local user.name  "Your Name"
+  git config -f ~/.gitconfig.local user.email "you@example.com"
+  ```
+  A commit attempted before that's set fails with git's own "Author identity unknown"
+  rather than silently attributing to a stale identity.
+- **`~/.zshenv.secrets`** — see Secrets above.
+
+## Per-machine escape hatches
+
+Two more files, neither tracked, both silently no-ops when absent:
+
+- `~/.zshrc.local` — sourced last by `zsh/zshrc`, for shell config specific to one box
+  (including `--display-host`'s toggle, above).
+- `~/.gitconfig.local` — included last by `git/gitconfig` — your `[user]` identity, or
+  anything else specific to one box.
+
+## macOS / Ghostty
+
+`./bootstrap/deps-macos.sh` installs Homebrew packages plus the Ghostty app itself
+(skipped if already installed). Then `./install.sh` as usual.
+
+- **`ghostty/config`** is tracked and copied to `~/.config/ghostty/config` — the same
+  XDG path Ghostty reads on Linux, so one file covers both. For a per-machine override,
+  drop settings in `~/Library/Application Support/com.mitchellh.ghostty/config`
+  instead — Ghostty loads that *after* the XDG file, so it wins, matching the
+  `~/.zshrc.local` pattern above. Already pinned to `MesloLGS NF` —
+  not touched by the Terminator-only font logic below.
+- **`shell-integration-features = ...,ssh-env,ssh-terminfo`** in that config matters if
+  you `ssh` from Ghostty into a Linux box: Ghostty sets `TERM=xterm-ghostty`, which a
+  remote host without Ghostty's terminfo entry rejects as "missing or unsuitable
+  terminal". `ssh-env` rewrites `TERM` for the remote session; `ssh-terminfo` also
+  tries to install the real entry.
+- **Homebrew zsh and `/etc/shells`**: if `/opt/homebrew/bin/zsh` isn't listed in
+  `/etc/shells`, `install.sh` prints the exact `sudo tee -a` command rather than
+  appending it for you — it's the one system-file edit the script won't make silently.
+- **Terminator font auto-config is Linux-only** (Terminator doesn't run on macOS);
+  `install.sh` skips it there automatically — no flag needed.
+
+## Fonts
+
+**MesloLGS NF** (Powerlevel10k's own recommended font, per its README) is installed
+unconditionally by `install.sh` — no flag needed.
+`POWERLEVEL9K_MODE=nerdfont-v3` in `zsh/p10k.zsh` is tuned for it.
+
+## The "return code 1 on a new terminal" bug
+
+A bare `[[ -f X ]] && source X` as the *last* statement of a sourced startup file
+leaves `$? = 1` whenever X is absent — zsh doesn't reset it afterward, so it's still
+sitting there at your very first prompt. Both `zsh/zshenv` (sourcing
+`~/.zshenv.secrets`) and `zsh/zshrc` (sourcing `~/.zshrc.local`) use `if … fi` instead,
+and `zsh/zshrc` ends with a literal `true` as a final safety net.
 
 ## Why not stow/chezmoi
 
-Plain symlinks via a shell script — one dependency (bash), fully readable, easy to undo
-(`rm` the symlink, restore from `~/.zsh-config-backup/`).
+A copy-based install via a shell script — one dependency (bash), fully readable, easy
+to undo (`./install.sh --backout`, or restore by hand from `~/.zsh-config-backup/`).

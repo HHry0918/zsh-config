@@ -1,0 +1,95 @@
+# Portable environment only. Runs on EVERY zsh invocation, including nested/non-interactive
+# ones — so anything here must be safe for scripts and daemons, not just interactive shells.
+# Work-specific and secret values are deliberately NOT here; see README.md.
+
+# Single source of truth for the syntax theme: bat reads it directly, and delta's
+# --syntax-theme falls back to it. Overrides --theme in ~/.config/bat/config.
+export BAT_THEME="Solarized (dark)"
+
+# Consolidated PATH: dedupe rather than prepend-to, since this file runs on every
+# nested zsh invocation and an unguarded prepend would grow PATH unbounded.
+typeset -U path PATH
+export PATH="$HOME/bin:$HOME/.local/bin:$HOME/.bun/bin:/usr/local/bin:/usr/local/go/bin:$PATH"
+# macOS: prepend Homebrew and GNU coreutils (BSD tools otherwise shadow the GNU ones
+# these dotfiles assume — dircolors, sed, etc).
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  for _brew_prefix in /opt/homebrew /usr/local; do
+    if [[ -x "$_brew_prefix/bin/brew" ]]; then
+      export PATH="$_brew_prefix/bin:$_brew_prefix/sbin:$PATH"
+      # (N): null-glob qualifier — without it, a brew with zero gnubin-providing
+      # formulae installed makes this bare glob fail to match, and zsh aborts the rest
+      # of .zshenv right here ("no matches found"), silently dropping LANG, ZSH, and
+      # the zshenv.secrets load below on every single shell start.
+      for _gnubin in "$_brew_prefix"/opt/*/libexec/gnubin(N); do
+        [[ -d "$_gnubin" ]] && export PATH="$_gnubin:$PATH"
+      done
+      break
+    fi
+  done
+  unset _brew_prefix _gnubin
+fi
+
+# Path to your Oh My Zsh installation.
+export ZSH="$HOME/.oh-my-zsh"
+
+# You may need to manually set your language environment
+export LANG=en_AU.UTF-8
+
+# Preferred editor for local and remote sessions
+export EDITOR='vim'
+
+# agnoster theme
+export DEFAULT_USER=''
+
+# bat README, Troubleshooting → "Garbled output": man-db emits SGR escapes and bat's default
+# --strip-ansi=never passes them through while highlighting, splitting ESC[24m into literal
+# "[38;2;…m24m" text at every cross-reference. auto strips them (never plain text with -lman).
+export MANPAGER="bat -plman --strip-ansi=auto"
+
+# Mouse-wheel scrolling in less (needs less >= 551). Deliberately set via LESS, not
+# BAT_PAGER: less reads LESS itself, whereas any argument in BAT_PAGER makes bat skip
+# its own auto-added -R/-F/-K (see bat README, "Using less as a pager").
+# Trade-off: with --mouse, click-drag text selection requires holding Shift.
+export LESS="-R --mouse --wheel-lines=3"
+
+### Tool roots
+export PYENV_ROOT="$HOME/.pyenv"
+export NVM_DIR="$HOME/.nvm"
+export BUN_INSTALL="$HOME/.bun"
+
+### ripgrep / fd config shipped in this repo
+export RIPGREP_CONFIG_PATH="${ZSH_CONFIG_DIR:-$HOME/zsh-config}/ripgrep/ripgreprc"
+
+### RTK
+export RTK_TELEMETRY_DISABLED=1
+
+### headroom (local LLM proxy — personal tool, not work-specific)
+export HEADROOM_PORT="8787"
+export HEADROOM_HOST="127.0.0.1"
+export HEADROOM_MODE="cache"
+export HEADROOM_BACKEND="anthropic"
+export HEADROOM_TELEMETRY="off"
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
+export ENABLE_TOOL_SEARCH="true"
+export OPENAI_BASE_URL="http://127.0.0.1:8787/v1"
+
+# Universal telemetry opt-out (claude-mem, npm, etc.)
+export DO_NOT_TRACK=1
+
+# Cap OpenMP thread fan-out for embedding workloads (e.g. claude-mem's chroma-mcp via
+# onnxruntime) — without this, a large backfill spawns one thread per core with no
+# limit. Only takes effect if the local onnxruntime build uses OpenMP.
+export OMP_NUM_THREADS=2
+export OMP_WAIT_POLICY=PASSIVE
+
+# Homebrew
+export HOMEBREW_NO_ANALYTICS=1
+
+# Secrets, sourced last so they can override/extend the above. Not tracked by this
+# repo — see README.md. `if ... fi`, not `[[ ]] &&`: a bare trailing `&&` makes this
+# file's (and thus every nested zsh invocation's) exit status 1 whenever the file is
+# absent, which surfaces as a stale nonzero $? at the very first interactive prompt.
+if [[ -f ~/.zshenv.secrets ]]; then
+  source ~/.zshenv.secrets
+fi
+true

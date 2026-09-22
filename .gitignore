@@ -1,4 +1,4 @@
-# Secrets: real values live outside the repo, filled from *.template files
+# Secrets: real values live outside the repo, in files you create yourself
 .zshenv.secrets
 zsh/zshenv.secrets
 
@@ -6,11 +6,16 @@ zsh/zshenv.secrets
 .zsh_history
 .fzf.zsh
 .zshrc.local
+.gitconfig.local
 
 # Caches and clones install.sh creates/manages, never vendored
 .cache/
 .oh-my-zsh/
 .local/share/zinit/
+
+# Editor/agent tooling state — local to whoever's working in the repo
+.claude/
+.serena/
 
 # Never, under any circumstances
 *.pem

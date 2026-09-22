@@ -1,0 +1,83 @@
+[core]
+	editor = vim
+	pager = delta
+[alias]
+	# Short alias
+	st = status
+    st-uno = status -uno
+	ci = commit
+	cim = commit --message
+	cia = commit --amend
+	br = branch
+	co = checkout
+	lg = log -p
+	sw = switch
+	lol = "!f() { fmt='%C(yellow)%h%C(reset)%x20%C(cyan)%d%C(reset)%x20%ad%x20(%ar)%x20%C(green)%an%C(reset)%x20%s'; if [ -t 1 ]; then line=$(git log --graph --decorate --date=short --abbrev-commit --color=always --pretty=format:\"$fmt\" \"$@\" | fzf --ansi --no-sort --preview 'sha=$(echo {} | grep -oE \"[0-9a-f]{7,}\" | head -1); [ -n \"$sha\" ] && git show --color=always --stat --patch $sha | delta --paging=never --width=$FZF_PREVIEW_COLUMNS' --preview-window 'right,65%,border-left'); sha=$(echo \"$line\" | grep -oE '[0-9a-f]{7,}' | head -1); [ -z \"$sha\" ] && return 0; git show \"$sha\"; else git log --graph --decorate --date=short --abbrev-commit --pretty=format:\"$fmt\" \"$@\"; fi; }; f"
+	lola = "!git lol --all"
+	ls = ls-files
+	reset-head = reset HEAD~
+	reset-hard = reset HEAD~ --hard
+	ign = ls-files -o -i --exclude-standard
+	ps = push
+	psf = push --force
+	psfl = push --force-with-lease
+	pr = pull --rebase
+	prm = pull --rebase origin master
+	ai = add --interactive
+	aa = add -u *
+	sthl = stash list
+	unstage = restore --staged
+	ms = merge --squash
+	cam = commit -am
+	br-name = rev-parse --abbrev-ref HEAD
+	repo-head-fullname = symbolic-ref refs/remotes/origin/HEAD
+	new-branch = co -b
+	br-del = br -D
+	rb = rebase
+	rbi = rebase --interactive
+
+	# Function alias
+	# cut's --output-delimiter is GNU-only and errors under BSD cut (macOS) — piping
+	# through tr instead is portable and produces identical output for both fields.
+	repo-head-name = "!f() { git repo-head-fullname | cut -d "/" -f 3,4 | tr '/' ' ' ; }; f"
+	repo-head-shortname = "!f() { git repo-head-fullname | cut -d "/" -f 4 ; }; f"
+	sync-local = "!f() { git co $(git repo-head-shortname) && git pr && git sw - && git pr ; }; f"
+	sync-remote = "!f() { export HEAD_BRANCH=$(git repo-head-shortname) && git co $HEAD_BRANCH && git pr && git sw - && git rbi $HEAD_BRANCH ; }; f"
+	ps-upstream = "!f() { git push --set-upstream origin $(git br-name); }; f"
+	prev-br-name = "!f() { git sw - > /dev/null 2>&1 && git br-name && git sw - > /dev/null 2>&1; }; f"
+    df = "!f() { file=$(git diff --name-only | fzf --preview 'git diff -- {} | delta --paging=never --width=$FZF_PREVIEW_COLUMNS' --preview-window up,70%,border-bottom); [ -z \"$file\" ] && return 0; git diff -- \"$file\"; }; f"
+    ds = "!f() { file=$(git diff --name-only --staged | fzf --preview 'git diff --staged -- {} | delta --paging=never --width=$FZF_PREVIEW_COLUMNS' --preview-window up,70%,border-bottom); [ -z \"$file\" ] && return 0; git diff --staged -- \"$file\"; }; f"
+	br-search = "!f() { sel=$(git for-each-ref --sort=-committerdate --format='%(if)%(symref)%(then)%(else)%(align:45,left)%(refname:short)%(end) %(color:cyan)%(committerdate:relative)%(color:reset) %(color:green)%(authorname)%(color:reset)%(end)' refs/heads refs/remotes | grep -v '^[[:space:]]*$' | fzf --ansi --no-multi --preview 'git show --stat --patch {1} | delta --paging=never --width=$FZF_PREVIEW_COLUMNS' --preview-window 'right,65%,border-left' | awk '{print $1}'); [ -z \"$sel\" ] && return 0; if git show-ref --verify --quiet \"refs/remotes/$sel\"; then loc=${sel#*/}; if git show-ref --verify --quiet \"refs/heads/$loc\"; then git checkout \"$loc\"; else git checkout --track \"$sel\"; fi; else git checkout \"$sel\"; fi; }; f"
+	rgg = "!f() { rg -nH --color=never \"$@\" | delta --grep-output-type=ripgrep; }; f"
+[color]
+	branch = auto
+	diff = auto
+	interactive = auto
+	status = auto
+[commit]
+	template = ~/.gitmessage
+[rerere]
+	enabled = true
+[interactive]
+	diffFilter = delta --color-only
+[pager]
+	blame = delta
+[delta]
+	dark = true
+	line-numbers = true
+	side-by-side = true
+	navigate = true
+	hyperlinks = true
+	features = zebra-dark
+	hyperlinks-file-link-format = vscode://file/{path}:{line}
+[diff]
+	colorMoved = default
+[include]
+	path = ~/delta-themes.gitconfig
+# Per-machine escape hatch, not tracked by this repo — holds your [user] identity
+# (name/email), and anything else you want on this box only. Git silently ignores a
+# missing include, so this is a no-op until you create the file:
+#   git config -f ~/.gitconfig.local user.name  "Your Name"
+#   git config -f ~/.gitconfig.local user.email "you@example.com"
+[include]
+	path = ~/.gitconfig.local

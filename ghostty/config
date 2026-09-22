@@ -1,0 +1,33 @@
+# Symlinked to ~/.config/ghostty/config by install.sh. Ghostty reads this XDG path on
+# both Linux and macOS; a per-machine override can still be dropped at
+# ~/Library/Application Support/com.mitchellh.ghostty/config on macOS — it loads
+# *after* this file, so it wins, the same escape hatch as ~/.zshrc.local.
+#
+# Filename note: this must stay named "config", not "config.ghostty" — every Ghostty
+# version reads "config", only >=1.2.3 also reads "config.ghostty". Don't link both;
+# Ghostty loads both if both exist, duplicating any repeated key.
+#
+# Ghostty has built-in Nerd Font glyphs, so the Powerline prompt and `lsd --icon=always`
+# render with zero font config here. font-family below is set anyway for consistency
+# with the MesloLGS NF install.sh downloads for other macOS apps (VS Code, iTerm) that
+# don't have Nerd Font glyphs built in.
+font-family = MesloLGS NF
+font-size = 13
+
+# macOS has no distinct Alt key; without this, Option-based keybindings expected by
+# 40-keybinds.zsh produce Unicode input (e.g. option-b -> "∫") instead of acting as Alt.
+macos-option-as-alt = true
+
+# `detect` picks zsh from the shell's filename; explicit since this repo is zsh-only.
+shell-integration = detect
+
+# ssh-env / ssh-terminfo matter most here: Ghostty sets TERM=xterm-ghostty, which SSH
+# into a work Linux box without Ghostty's terminfo entry rejects as "missing or
+# unsuitable terminal: xterm-ghostty". ssh-env rewrites TERM to xterm-256color for the
+# remote session; ssh-terminfo additionally tries to install the real entry via
+# infocmp/tic. `sudo` preserves TERMINFO across sudo for the same reason.
+shell-integration-features = cursor,title,sudo,ssh-env,ssh-terminfo
+
+# No `theme` key: zsh/zshenv sets BAT_THEME="Solarized (dark)", which is a bat theme
+# name, not a Ghostty one — guessing a Ghostty theme name that doesn't exist logs an
+# error on every launch. Run `ghostty +list-themes` to pick one and add it here.

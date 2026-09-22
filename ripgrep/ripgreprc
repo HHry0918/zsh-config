@@ -1,0 +1,6 @@
+# ripgrep config, pointed to by RIPGREP_CONFIG_PATH (set in zsh/zshenv).
+# Kept conservative: ripgrep already respects .gitignore by default, this just adds
+# smart-case and a couple of universally-noisy excludes.
+--smart-case
+--hidden
+--glob=!.git/
