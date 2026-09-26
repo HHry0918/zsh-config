@@ -94,7 +94,7 @@ run() {
   fi
 }
 
-# copy SRC(repo-relative) DEST(absolute)
+# copy SRC(repo-relative or absolute) DEST(absolute)
 #
 # - dest is a symlink INTO this repo (the old install mechanism) -> remove the link,
 #   then copy. Mandatory special case: `cp src dest` where dest resolves to src either
@@ -104,7 +104,8 @@ run() {
 #   re-runs cheap now that symlinks no longer propagate every edit live.
 # - dest is a regular file that differs -> back it up, then copy.
 copy() {
-  local src="$REPO_DIR/$1" dest="$2" rel
+  local src="$1" dest="$2" rel
+  [[ "$src" == /* ]] || src="$REPO_DIR/$src"
   rel="${dest#"$HOME"/}"
   if [[ -L "$dest" ]]; then
     local target; target="$(readlink "$dest")"
@@ -472,10 +473,18 @@ fi
 # zinit self-bootstraps from zsh/zshrc on first shell start — deliberately not
 # duplicated here.
 
-### ~/.zshenv: copied like any other file now (no more migration special-case — the
-### secrets/portable split already happened in the repo itself). An existing
-### ~/.zshenv that differs is backed up first, same as everything else.
-copy zsh/zshenv                                ~/.zshenv
+### ~/.zshenv: select the ripgrep path at install time. Compare the rendered file
+### before backing up so an unchanged macOS install remains a no-op on re-runs.
+if [[ "$OS" == Darwin ]]; then
+  zshenv_rendered=$(mktemp "${TMPDIR:-/tmp}/zshenv.XXXXXX")
+  sed 's|^export RIPGREP_CONFIG_PATH=.*$|export RIPGREP_CONFIG_PATH="$HOME/.config/ripgrep/ripgreprc"|' \
+    "$REPO_DIR/zsh/zshenv" > "$zshenv_rendered"
+  chmod 644 "$zshenv_rendered"
+  copy "$zshenv_rendered" "$HOME/.zshenv"
+  rm -f "$zshenv_rendered"
+else
+  copy zsh/zshenv "$HOME/.zshenv"
+fi
 
 ### Core config
 copy zsh/zshrc                                 ~/.zshrc

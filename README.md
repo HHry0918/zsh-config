@@ -51,13 +51,17 @@ lost. Every run is logged to `/tmp/zsh-config-install-<UTC-timestamp>.log`.
 ### Copy, not symlink
 
 Dotfiles are **copied** into `$HOME`, not symlinked. Re-running `./install.sh` is how
-you apply repo updates to a box — a copy that's identical to the repo's version is a
-silent no-op (fast re-runs), one that differs gets backed up then overwritten. This
-replaced an earlier symlink-based design: live-editing a symlinked dotfile meant
+you apply repo updates to a box — a copy that's identical to the intended installed
+version is a silent no-op (fast re-runs), one that differs gets backed up then
+overwritten. This replaced an earlier symlink-based design: live-editing a symlinked
+dotfile meant
 editing the repo by accident, and every box had detached into real, independent files
 anyway. `zsh/zfunc/` is the one directory case — `install.sh` also writes a manifest
 next to `~/.zfunc/` so a completion file deleted from the repo is removed on the next
 run instead of lingering forever.
+
+On macOS, the installer sets `RIPGREP_CONFIG_PATH` in `~/.zshenv` to the installed
+`~/.config/ripgrep/ripgreprc`; Linux keeps the repo's export line.
 
 ### `--backout`
 
