@@ -116,21 +116,10 @@ _zcache() {
 # Custom plugins may be added to $ZSH_CUSTOM/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-#
-# zsh-interactive-cd captures whatever Tab was bound to at its own load time (here,
-# fzf-tab's widget, since it loads first in this list) and falls back to it for every
-# command except a literal `cd`, which it handles itself with its own lsd-preview picker
-# (_zic_complete, below) — this is why the fzf-tab zstyle for `cd` is deleted rather than
-# kept: it would never fire. fzf-tab still drives Tab-completion for zoxide's `z` and
-# everything else (git branches, docker containers, etc).
-plugins=(zoxide fzf fzf-tab zsh-interactive-cd tmux alias-finder aliases)
+# fzf-tab handles completion for all commands, including cd.
+plugins=(zoxide fzf fzf-tab tmux alias-finder aliases)
 
-### fzf env — must be set before Oh My Zsh's fzf plugin runs `fzf --zsh` further down
-# (zinit/oh-my-zsh load below). Do NOT source a generated ~/.fzf.zsh or call `fzf --zsh`
-# here yourself — it would override zsh-interactive-cd's Tab binding (see _zic_complete's
-# own comment further down). This block only exports variables, read at invocation time
-# regardless of source order, and OMZ's fzf plugin (gated on fzf >= 0.48.0) does the
-# actual shell integration.
+### fzf env — OMZ's fzf plugin loads the shell integration below.
 export FZF_TMUX_HEIGHT=100%
 
 if command -v fd >/dev/null; then
@@ -170,6 +159,11 @@ if command -v lsd >/dev/null; then
   export FZF_COMPLETION_PATH_OPTS="$FZF_CTRL_T_OPTS"
   export FZF_COMPLETION_DIR_OPTS="$FZF_CTRL_T_OPTS"
 fi
+
+# Widget labels stay available even when lsd previews are unavailable.
+export FZF_CTRL_T_OPTS="$FZF_CTRL_T_OPTS --border-label ' Files (Ctrl+T) '"
+export FZF_ALT_C_OPTS="$FZF_ALT_C_OPTS --border-label ' Directories (Alt+C) '"
+export FZF_CTRL_R_OPTS="--border-label ' History (Ctrl+R) '"
 
 _fzf_compgen_path() {
   fd --type f --type d --hidden --follow --strip-cwd-prefix . "$1"
@@ -242,74 +236,6 @@ fi
 
 zinit light zsh-users/zsh-syntax-highlighting
 zinit light zsh-users/zsh-autosuggestions
-
-# Keep zsh-interactive-cd directory picker compact and preview nested paths correctly.
-_zic_complete() {
-  setopt localoptions nonomatch
-  local l matches fzf fzf_bindings tokens base preview_base
-
-  l=$(_zic_list_generator $@)
-
-  if [ -z "$l" ]; then
-    zle ${__zic_default_completion:-expand-or-complete}
-    return
-  fi
-
-  preview_base="${(Q)@[-1]}"
-  if [[ "$preview_base" != */ ]]; then
-    if [[ "$preview_base" == */* ]]; then
-      preview_base="$(dirname -- "$preview_base")"
-      if [[ ${preview_base[-1]} != / ]]; then
-        preview_base="$preview_base/"
-      fi
-    else
-      preview_base=""
-    fi
-  fi
-
-  fzf=$(FZF_TMUX_HEIGHT=40% __zic_fzf_prog)
-  fzf_bindings=$(FZF_TMUX_HEIGHT=40% __zic_fzf_bindings)
-
-  if [ $(echo $l | wc -l) -eq 1 ]; then
-    matches=${(q)l}
-  else
-    matches=$(echo $l \
-        | ZIC_PREVIEW_BASE="$preview_base" FZF_TMUX_HEIGHT=40% FZF_DEFAULT_OPTS="--height 40% \
-          --reverse $FZF_DEFAULT_OPTS \
-          --preview 'lsd -la --header --tree --depth 1 --color=always --icon=auto --group-directories-first --git -- \"\${ZIC_PREVIEW_BASE}\"{}' \
-          --bind '${fzf_bindings}'" ${=fzf} \
-        | while read -r item; do
-      echo -n "${(q)item} "
-    done)
-  fi
-
-  matches=${matches% }
-  if [ -n "$matches" ]; then
-    tokens=(${(z)LBUFFER})
-    base="${(Q)@[-1]}"
-    if [[ "$base" != */ ]]; then
-      if [[ "$base" == */* ]]; then
-        base="$(dirname -- "$base")"
-        if [[ ${base[-1]} != / ]]; then
-          base="$base/"
-        fi
-      else
-        base=""
-      fi
-    fi
-    LBUFFER="${tokens[1]} "
-    if [ -n "$base" ]; then
-      base="${(q)base}"
-      if [ "${tokens[2][1]}" = "~" ]; then
-        base="${base/#$HOME/~}"
-      fi
-      LBUFFER="${LBUFFER}${base}"
-    fi
-    LBUFFER="${LBUFFER}${matches}/"
-  fi
-  zle redisplay
-  typeset -f zle-line-init >/dev/null && zle zle-line-init
-}
 
 # bat-help accept-line widget: pipe trailing -h/--help through bat without global aliases.
 # - </dev/null matters: some CLIs (claude, node) snapshot their stdin tty's termios at
@@ -385,10 +311,12 @@ setopt hist_find_no_dups
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
 zstyle ':completion:*' menu no
-zstyle ':fzf-tab:complete:__zoxide_z:*' fzf-preview 'lsd --color=always --icon=always --group-directories-first $realpath'
-
-# Oh My Zsh's fzf plugin already sets up fzf. Re-sourcing fzf here overrides
-# zsh-interactive-cd's Tab binding.
+zstyle ':fzf-tab:*' use-fzf-default-opts yes
+zstyle ':fzf-tab:*' fzf-flags --border-label ' Completion (Tab) '
+if command -v lsd >/dev/null; then
+  zstyle ':fzf-tab:complete:cd:*' fzf-preview 'lsd -la --header --tree --depth 1 --color=always --icon=auto --group-directories-first --git -- "$realpath"'
+  zstyle ':fzf-tab:complete:__zoxide_z:*' fzf-preview 'lsd -la --header --tree --depth 1 --color=always --icon=auto --group-directories-first --git -- "$realpath"'
+fi
 
 ### dircolors
 # Change dircolors. GNU-only; macOS coreutils installs it as gdircolors unless the
@@ -584,6 +512,12 @@ fi
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 if [[ -f ~/.p10k.zsh ]]; then
   source ~/.p10k.zsh
+fi
+
+# Atuin is optional; Ctrl+R stays and Up stays with fzf.
+[[ -f "$HOME/.atuin/bin/env" ]] && source "$HOME/.atuin/bin/env"
+if command -v atuin >/dev/null; then
+  eval "$(atuin init zsh --disable-ctrl-r --disable-up-arrow)"
 fi
 
 # Per-machine escape hatch, not tracked by this repo. `if ... fi`, not `[[ ]] &&`: a bare

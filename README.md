@@ -30,13 +30,15 @@ theme (agnoster kept as a fallback). Installs onto a fresh Ubuntu or macOS box v
 
 1. Detects the OS (Ubuntu or macOS only — anything else exits with a message) and the
    terminal app in use (Terminator / Ghostty / other).
-2. Prints an inventory of the 16 tools/frameworks/fonts this config assumes — `zoxide`,
-   `zsh`, oh-my-zsh, `fzf`, `lsd`, `fd`, `ripgrep`, `delta`, `procs`, `tmux`,
-   powerlevel10k, MesloLGS NF, `bat`, `jq`, `git`, `vim` — each
-   marked present (with version) or MISSING.
+2. Prints an inventory of 18 tools/frameworks/fonts on Linux or 17 on macOS — Atuin
+   (`>=18.23.0`), `zoxide`, `zsh`, oh-my-zsh, `fzf`, `lsd`, `fd`, `ripgrep`, `delta`,
+   `procs`, `tmux`, powerlevel10k, MesloLGS NF, `bat`, `jq`, `git`, `vim`, and the
+   Linux-only `xsel/xclip` check. Missing or outdated Atuin is reported with a link to
+   [its installation guide](https://docs.atuin.sh/latest/guide/installation/); install.sh
+   does not install Atuin automatically.
 3. Waits for you to confirm. It never auto-proceeds without a real TTY — if there's no
    terminal to confirm on, it stops and says so rather than guessing.
-4. Best-effort installs whatever's missing, then **copies** every dotfile (not
+4. Best-effort installs other missing tools, then **copies** every dotfile (not
    symlinks — see below), clones the oh-my-zsh/fzf-tab/powerlevel10k frameworks,
    installs the MesloLGS NF font, and — on Terminator only — writes a font stanza if no
    config exists yet, or appends one if a config exists with no `[profiles]` section.

@@ -44,13 +44,12 @@ Options:
 What this script checks and installs, in order:
   1. Detects the OS (Ubuntu or macOS only — anything else exits with a message)
      and the terminal app in use (Terminator / Ghostty / other).
-  2. Prints an inventory of 16 tools/frameworks/fonts this config assumes: zoxide,
-     zsh, oh-my-zsh, fzf, lsd, fd, ripgrep, delta, procs, tmux, powerlevel10k,
-     MesloLGS NF, bat, jq, git, vim — each marked present
-     (with version) or MISSING, plus a summary of which dotfiles would change.
+  2. Prints an inventory of 18 tools/frameworks/fonts on Linux or 17 on macOS that
+     this config assumes, including Atuin >=18.23.0, plus a summary of dotfile changes.
   3. Waits for you to type y to proceed. Never auto-proceeds without a real TTY.
-  4. Best-effort installs whatever's missing (bootstrap/deps-linux.sh or
-     deps-macos.sh), then copies every dotfile, clones the oh-my-zsh/fzf-tab/
+  4. Best-effort installs missing tools through bootstrap/deps-linux.sh or
+     deps-macos.sh. Atuin is reported only; install it manually if missing/outdated.
+     Then copies every dotfile, clones the oh-my-zsh/fzf-tab/
      powerlevel10k frameworks, installs the MesloLGS NF font, and — on Terminator
      only — writes a font stanza if none exists yet (never edits an existing one).
   5. Switches the login shell to zsh if it isn't already (needs zsh listed in
@@ -314,9 +313,8 @@ detect_terminal() {
   fi
 }
 
-# print_tool_inventory — the fixed, explicit 17-entry list. Every entry is checked and
-# reported, not a subset. Re-used verbatim (same probes) by the post-install tool
-# report in 4b.
+# print_tool_inventory — 18 entries on Linux, 17 on macOS because xsel/xclip is a
+# Linux-only check. Re-used verbatim by the post-install tool report.
 print_tool_inventory() {
   echo "== zsh-config install plan ($OS_LABEL, terminal: $TERM_APP) =="
   printf '  %-18s %-10s %s\n' zoxide "$(tool_version zoxide)" "$(probe zoxide && echo OK || echo MISSING)"
@@ -351,6 +349,17 @@ print_tool_inventory() {
     printf '  %-18s %-10s %s\n' "MesloLGS NF" - "$( (set +o pipefail; fc-list 2>/dev/null | grep -qi "MesloLGS NF") && echo OK || echo "MISSING -> will install")"
   fi
   printf '  %-18s %-10s %s\n' bat "$(tool_version bat)" "$(probe bat && echo OK || echo "MISSING/OLD -> will fetch")"
+  local atuin_version atuin_major atuin_minor atuin_status
+  atuin_version=$(tool_version atuin)
+  atuin_status="REQUIRED — needs >=18.23.0; install manually: https://docs.atuin.sh/latest/guide/installation/"
+  if [[ "$atuin_version" =~ ^atuin[[:space:]]+([0-9]+)\.([0-9]+)\.([0-9]+)([[:space:]]|$) ]]; then
+    atuin_major=${BASH_REMATCH[1]}
+    atuin_minor=${BASH_REMATCH[2]}
+    if (( 10#$atuin_major > 18 || (10#$atuin_major == 18 && 10#$atuin_minor >= 23) )); then
+      atuin_status=OK
+    fi
+  fi
+  printf '  %-18s %-10s %s\n' atuin "$atuin_version" "$atuin_status"
   printf '  %-18s %-10s %s\n' jq "$(tool_version jq)" "$(command -v jq >/dev/null && echo "OK (not used by this repo — reported only)" || echo "MISSING (not used by this repo — reported only)")"
   if [[ "$OS" != Darwin ]]; then
     printf '  %-18s %-10s %s\n' "xsel/xclip" - "$( { command -v xsel >/dev/null || command -v xclip >/dev/null; } && echo "OK (local-desktop clipboard; ssh sessions use OSC 52 instead)" || echo "MISSING -> will install (local-desktop clipboard only; ssh sessions use OSC 52 instead)")"
@@ -506,6 +515,7 @@ copy lsd/config.yaml                           ~/.config/lsd/config.yaml
 copy ghostty/config                            ~/.config/ghostty/config
 copy tmux/tmux.conf                            ~/.tmux.conf
 copy vim/vimrc                                 ~/.vimrc
+copy atuin/config.toml                         ~/.config/atuin/config.toml
 
 ### --display-host: un-hide the theme's own "user@host" segment via the ~/.zshrc.local
 ### per-machine escape hatch. Idempotent: never duplicates the line.
@@ -618,7 +628,7 @@ fi
 
 ensure_zsh_shell
 
-### Tool report (4b) — re-run the identical 17-entry probe, plus gitleaks (only
+### Tool report (4b) — re-run the identical inventory, plus gitleaks (only
 ### relevant here since it's what would gate git/hooks/pre-commit if you opt into it —
 ### that hook is tracked but never wired up by this script).
 echo "== tool report =="
