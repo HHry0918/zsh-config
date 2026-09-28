@@ -12,8 +12,6 @@
 	co = checkout
 	lg = log -p
 	sw = switch
-	lol = "!f() { fmt='%C(yellow)%h%C(reset)%x20%C(cyan)%d%C(reset)%x20%ad%x20(%ar)%x20%C(green)%an%C(reset)%x20%s'; if [ -t 1 ]; then line=$(git log --graph --decorate --date=short --abbrev-commit --color=always --pretty=format:\"$fmt\" \"$@\" | fzf --ansi --no-sort --preview 'sha=$(echo {} | grep -oE \"[0-9a-f]{7,}\" | head -1); [ -n \"$sha\" ] && git show --color=always --stat --patch $sha | delta --paging=never --width=$FZF_PREVIEW_COLUMNS' --preview-window 'right,65%,border-left'); sha=$(echo \"$line\" | grep -oE '[0-9a-f]{7,}' | head -1); [ -z \"$sha\" ] && return 0; git show \"$sha\"; else git log --graph --decorate --date=short --abbrev-commit --pretty=format:\"$fmt\" \"$@\"; fi; }; f"
-	lola = "!git lol --all"
 	ls = ls-files
 	reset-head = reset HEAD~
 	reset-hard = reset HEAD~ --hard
@@ -39,6 +37,8 @@
 	# Function alias
 	# cut's --output-delimiter is GNU-only and errors under BSD cut (macOS) — piping
 	# through tr instead is portable and produces identical output for both fields.
+	lol = "!f() { fmt='%C(yellow)%h%C(reset)%x20%C(cyan)%d%C(reset)%x20%ad%x20(%ar)%x20%C(green)%an%C(reset)%x20%s'; if [ -t 1 ]; then line=$(git log --graph --decorate --date=short --abbrev-commit --color=always --pretty=format:\"$fmt\" \"$@\" | fzf --ansi --no-sort --preview 'sha=$(echo {} | grep -oE \"[0-9a-f]{7,}\" | head -1); [ -n \"$sha\" ] && git show --color=always --stat --patch $sha | delta --paging=never --width=$FZF_PREVIEW_COLUMNS' --preview-window 'right,65%,border-left'); sha=$(echo \"$line\" | grep -oE '[0-9a-f]{7,}' | head -1); [ -z \"$sha\" ] && return 0; git show \"$sha\"; else git log --graph --decorate --date=short --abbrev-commit --pretty=format:\"$fmt\" \"$@\"; fi; }; f"
+	lola = "!git lol --all"
 	repo-head-name = "!f() { git repo-head-fullname | cut -d "/" -f 3,4 | tr '/' ' ' ; }; f"
 	repo-head-shortname = "!f() { git repo-head-fullname | cut -d "/" -f 4 ; }; f"
 	sync-local = "!f() { git co $(git repo-head-shortname) && git pr && git sw - && git pr ; }; f"
@@ -74,10 +74,3 @@
 	colorMoved = default
 [include]
 	path = ~/delta-themes.gitconfig
-# Per-machine escape hatch, not tracked by this repo — holds your [user] identity
-# (name/email), and anything else you want on this box only. Git silently ignores a
-# missing include, so this is a no-op until you create the file:
-#   git config -f ~/.gitconfig.local user.name  "Your Name"
-#   git config -f ~/.gitconfig.local user.email "you@example.com"
-[include]
-	path = ~/.gitconfig.local
