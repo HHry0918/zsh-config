@@ -5,3 +5,6 @@ set expandtab
 
 " display line number
 set number
+
+" syntax highlight
+syntax on
