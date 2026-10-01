@@ -314,8 +314,20 @@ zstyle ':completion:*' menu no
 zstyle ':fzf-tab:*' use-fzf-default-opts yes
 zstyle ':fzf-tab:*' fzf-flags --border-label ' Completion (Tab) '
 if command -v lsd >/dev/null; then
-  zstyle ':fzf-tab:complete:cd:*' fzf-preview 'lsd -la --header --tree --depth 1 --color=always --icon=auto --group-directories-first --git -- "$realpath"'
-  zstyle ':fzf-tab:complete:__zoxide_z:*' fzf-preview 'lsd -la --header --tree --depth 1 --color=always --icon=auto --group-directories-first --git -- "$realpath"'
+  # Remove the old command-specific overrides when re-sourcing this file.
+  zstyle -d ':fzf-tab:complete:cd:*' fzf-preview
+  zstyle -d ':fzf-tab:complete:__zoxide_z:*' fzf-preview
+  zstyle ':fzf-tab:complete:*' fzf-preview '
+    if (( $+ctxt[realdir] )); then
+      if [[ -d "$realpath" ]]; then
+        lsd -la --header --tree --depth 1 --color=always --icon=auto --group-directories-first --git -- "$realpath"
+      elif [[ -f "$realpath" ]]; then
+        fzf-preview.sh "$realpath"
+      fi
+    fi'
+  # Keep both actions on one focus binding; duplicate events in --bind overwrite.
+  zstyle ':fzf-tab:complete:*' fzf-bindings \
+    'focus:transform-preview-label@{_FTB_INIT_} if (( $+ctxt[realdir] )); then printf " Previewing [%s] " "$realpath"; else printf " "; fi@+transform-header@{_FTB_INIT_} if (( $+ctxt[realdir] )); then if [[ -d "$realpath" ]]; then lsd -ld --color=always --icon=auto --git -- "$realpath"; else file --brief -- "$realpath"; fi; else printf " "; fi@'
 fi
 
 ### dircolors
