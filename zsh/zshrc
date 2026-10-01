@@ -252,7 +252,7 @@ if [[ -o interactive ]]; then
       local -a w=(${(z)${line##*[|;&]}})          # words of the last simple command
       while (( $#w )) && [[ $w[1] == (*=*|sudo|command|builtin|noglob|nocorrect|exec|time|env) ]]; do shift w; done
       if [[ $line == *--help ]] || (( ! $human_h[(Ie)${w[1]:t}] )); then
-        BUFFER="${line} 2>&1 </dev/null | bat --language=help --style=plain"
+        BUFFER="${line} 2>&1 </dev/null | bat --language=help --color=always"
       fi
     fi
     zle .accept-line

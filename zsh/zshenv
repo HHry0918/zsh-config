@@ -5,6 +5,7 @@
 # Single source of truth for the syntax theme: bat reads it directly, and delta's
 # --syntax-theme falls back to it. Overrides --theme in ~/.config/bat/config.
 export BAT_THEME="Solarized (dark)"
+export BAT_STYLE="full"
 
 # Consolidated PATH: dedupe rather than prepend-to, since this file runs on every
 # nested zsh invocation and an unguarded prepend would grow PATH unbounded.
@@ -44,7 +45,7 @@ export DEFAULT_USER=''
 # bat README, Troubleshooting → "Garbled output": man-db emits SGR escapes and bat's default
 # --strip-ansi=never passes them through while highlighting, splitting ESC[24m into literal
 # "[38;2;…m24m" text at every cross-reference. auto strips them (never plain text with -lman).
-export MANPAGER="bat -plman --strip-ansi=auto"
+export MANPAGER="bat -lman --strip-ansi=auto"
 
 # Mouse-wheel scrolling in less (needs less >= 551). Deliberately set via LESS, not
 # BAT_PAGER: less reads LESS itself, whereas any argument in BAT_PAGER makes bat skip

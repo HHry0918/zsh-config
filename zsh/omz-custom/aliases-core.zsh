@@ -13,4 +13,4 @@ alias egrep='egrep --color'
 alias zshconfig="${EDITOR:-vi} ~/.zshrc"
 alias ohmyzsh="${EDITOR:-vi} ~/.oh-my-zsh"
 
-alias bat="bat --color=always --style=numbers"
+alias bat="bat --color=always"
