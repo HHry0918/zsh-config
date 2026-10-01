@@ -48,8 +48,10 @@ What this script checks and installs, in order:
      this config assumes, including Atuin >=18.23.0, plus a summary of dotfile changes.
   3. Waits for you to type y to proceed. Never auto-proceeds without a real TTY.
   4. Best-effort installs missing tools through bootstrap/deps-linux.sh or
-     deps-macos.sh. Atuin is reported only; install it manually if missing/outdated.
-     Then copies every dotfile, clones the oh-my-zsh/fzf-tab/
+     deps-macos.sh. Atuin is reported only; install it manually if missing/outdated —
+     when present, it owns Ctrl+R history search (fzf keeps Ctrl+T / Alt+C / Tab);
+     without it, Ctrl+R falls back to fzf. Then copies every dotfile, clones the
+     oh-my-zsh/fzf-tab/
      powerlevel10k frameworks, installs the MesloLGS NF font, and — on Terminator
      only — writes a font stanza if none exists yet (never edits an existing one).
   5. Switches the login shell to zsh if it isn't already (needs zsh listed in
@@ -351,7 +353,7 @@ print_tool_inventory() {
   printf '  %-18s %-10s %s\n' bat "$(tool_version bat)" "$(probe bat && echo OK || echo "MISSING/OLD -> will fetch")"
   local atuin_version atuin_major atuin_minor atuin_status
   atuin_version=$(tool_version atuin)
-  atuin_status="REQUIRED — needs >=18.23.0; install manually: https://docs.atuin.sh/latest/guide/installation/"
+  atuin_status="REQUIRED for Ctrl+R history search — needs >=18.23.0; install manually: https://docs.atuin.sh/latest/guide/installation/"
   if [[ "$atuin_version" =~ ^atuin[[:space:]]+([0-9]+)\.([0-9]+)\.([0-9]+)([[:space:]]|$) ]]; then
     atuin_major=${BASH_REMATCH[1]}
     atuin_minor=${BASH_REMATCH[2]}

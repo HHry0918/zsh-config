@@ -8,7 +8,9 @@ theme (agnoster kept as a fallback). Installs onto a fresh Ubuntu or macOS box v
 
 - `zsh/` — `zshenv` (portable env only), single-file `zshrc` (no more `zshrc.d/`
   modules — flattened into one file), `p10k.zsh` (tracked Powerlevel10k config),
-  oh-my-zsh custom aliases/theme, `zfunc/` completions, `dircolors`.
+  oh-my-zsh custom aliases/theme, `zfunc/` completions, `dircolors`, `utils.sh`
+  (personal shell helpers — VPN wrappers, `multi_rsync`; per-machine values like
+  `VPN_PROFILE` go in `~/.zshrc.local`, not here).
 - `git/` — `gitconfig` (no `[user]` — see Identity below), commit message template,
   delta theming, global `.gitignore`, an optional `hooks/pre-commit` (gitleaks-backed
   secret-commit guard, tracked but never wired up automatically by `install.sh`).
@@ -35,7 +37,8 @@ theme (agnoster kept as a fallback). Installs onto a fresh Ubuntu or macOS box v
    `procs`, `tmux`, powerlevel10k, MesloLGS NF, `bat`, `jq`, `git`, `vim`, and the
    Linux-only `xsel/xclip` check. Missing or outdated Atuin is reported with a link to
    [its installation guide](https://docs.atuin.sh/latest/guide/installation/); install.sh
-   does not install Atuin automatically.
+   does not install Atuin automatically. When Atuin is present, it owns Ctrl+R history
+   search (fzf keeps Ctrl+T / Alt+C / Tab); without it, Ctrl+R falls back to fzf.
 3. Waits for you to confirm. It never auto-proceeds without a real TTY — if there's no
    terminal to confirm on, it stops and says so rather than guessing.
 4. Best-effort installs other missing tools, then **copies** every dotfile (not

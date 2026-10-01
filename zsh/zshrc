@@ -526,10 +526,10 @@ if [[ -f ~/.p10k.zsh ]]; then
   source ~/.p10k.zsh
 fi
 
-# Atuin is optional; Ctrl+R stays and Up stays with fzf.
+# Atuin is optional; when present it owns Ctrl+R history search. Up stays with fzf.
 [[ -f "$HOME/.atuin/bin/env" ]] && source "$HOME/.atuin/bin/env"
 if command -v atuin >/dev/null; then
-  eval "$(atuin init zsh --disable-ctrl-r --disable-up-arrow)"
+  eval "$(atuin init zsh --disable-up-arrow)"
 fi
 
 # Per-machine escape hatch, not tracked by this repo. `if ... fi`, not `[[ ]] &&`: a bare
