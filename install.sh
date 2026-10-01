@@ -503,6 +503,7 @@ copy zsh/p10k.zsh                              ~/.p10k.zsh
 copy zsh/omz-custom/aliases-core.zsh           ~/.oh-my-zsh/custom/aliases-core.zsh
 copy zsh/omz-custom/themes/agnoster.zsh-theme  ~/.oh-my-zsh/custom/themes/agnoster.zsh-theme
 copy zsh/dircolors                             ~/.dircolors
+copy zsh/utils.sh                              ~/utils.sh
 copy_dir zsh/zfunc                             ~/.zfunc
 
 copy git/gitconfig                             ~/.gitconfig

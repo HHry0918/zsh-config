@@ -532,6 +532,11 @@ if command -v atuin >/dev/null; then
   eval "$(atuin init zsh --disable-up-arrow)"
 fi
 
+# Personal helpers, not tracked by this repo beyond the install.sh-copied skeleton below.
+if [[ -f ~/utils.sh ]]; then
+  source ~/utils.sh
+fi
+
 # Per-machine escape hatch, not tracked by this repo. `if ... fi`, not `[[ ]] &&`: a bare
 # trailing `&&` makes this file's exit status 1 whenever the file is absent, which
 # surfaces as a stale nonzero $? at the very first interactive prompt.
