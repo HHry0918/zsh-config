@@ -458,16 +458,19 @@ find-child-mount() {
 # tagged source, src/opt.rs). Never compare version numbers — probe for the capability:
 # try the new spelling first, fall back to the old one, skip silently if neither exists.
 if command -v procs >/dev/null; then
-  if procs --gen-completion-out zsh >/dev/null 2>&1; then
-    _procs_flag=--gen-completion-out
-  elif procs --completion-out zsh >/dev/null 2>&1; then
-    _procs_flag=--completion-out
-  else
-    _procs_flag=
-  fi
-  if [[ -n $_procs_flag ]]; then
-    _procs_f=~/.cache/zsh/procs.zsh
-    if [[ ! -s $_procs_f || $_procs_f -ot ${commands[procs]} ]]; then
+  _procs_f=~/.cache/zsh/procs.zsh
+  # Capability probe moved inside the staleness check: it was previously run on every
+  # startup regardless of cache freshness, and on a snap-packaged procs (slow launch per
+  # invocation) that's up to two extra subprocess launches paid on every single shell.
+  if [[ ! -s $_procs_f || $_procs_f -ot ${commands[procs]} ]]; then
+    if procs --gen-completion-out zsh >/dev/null 2>&1; then
+      _procs_flag=--gen-completion-out
+    elif procs --completion-out zsh >/dev/null 2>&1; then
+      _procs_flag=--completion-out
+    else
+      _procs_flag=
+    fi
+    if [[ -n $_procs_flag ]]; then
       mkdir -p ~/.cache/zsh
       _procs_tmp=$(mktemp "${_procs_f}.XXXXXX")
       if procs $_procs_flag zsh | command sed 's/^_procs "\$@"$/compdef _procs procs/' >| "$_procs_tmp" \
@@ -481,8 +484,8 @@ if command -v procs >/dev/null; then
         rm -f "$_procs_tmp"
       fi
     fi
-    [[ -s $_procs_f ]] && source $_procs_f
   fi
+  [[ -s $_procs_f ]] && source $_procs_f
   unset _procs_flag _procs_f _procs_tmp
 fi
 
