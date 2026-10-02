@@ -89,18 +89,19 @@ HIST_STAMPS="dd/mm/yyyy HH:MM:SS"
 # Would you like to use another custom folder than $ZSH/custom?
 # ZSH_CUSTOM=/path/to/new-custom-folder
 
-### _zcache helper
-# usage: _zcache <name> <cmd...>  — evals cached output, regenerates if binary is newer.
-# Generates to a temp file first and requires exit 0 + non-empty output before installing
-# it as the cache: a renamed/removed flag on the underlying tool (e.g. procs 0.14 renaming
-# --completion-out to --gen-completion-out) must degrade to "no completion" on the next
-# start, not leave a permanently-stale, newer-than-binary cache sourced on every startup.
-_zcache() {
-  local name=$1; shift
-  local f=~/.cache/zsh/$name.zsh bin=${commands[$1]}
-  [[ -n $bin ]] || return
+### _zgen / _zcache / _zcomp helpers
+# _zgen <file> <cmd...> — regenerates <file> from <cmd...> output if missing/stale
+# (binary newer than cache). Generates to a temp file first and requires exit 0 +
+# non-empty output before installing it as the cache: a renamed/removed flag on the
+# underlying tool (e.g. procs 0.14 renaming --completion-out to --gen-completion-out)
+# must degrade to "no completion" on the next start, not leave a permanently-stale,
+# newer-than-binary cache sourced on every startup.
+_zgen() {
+  local f=$1; shift
+  local bin=${commands[$1]}
+  [[ -n $bin ]] || return 1
   if [[ ! -s $f || $f -ot $bin ]]; then
-    mkdir -p ~/.cache/zsh
+    mkdir -p ${f:h}
     local tmp; tmp=$(mktemp "${f}.XXXXXX")
     if "$@" >| "$tmp" && [[ -s $tmp ]]; then
       mv "$tmp" "$f"
@@ -108,7 +109,24 @@ _zcache() {
       rm -f "$tmp"
     fi
   fi
+  [[ -s $f ]]
+}
+
+# _zcache <name> <cmd...> — _zgen into ~/.cache/zsh/<name>.zsh, then sources it. For
+# init snippets (pyenv, uv) that must run eagerly as part of the current shell.
+_zcache() {
+  local name=$1; shift
+  _zgen ~/.cache/zsh/$name.zsh "$@"
+  local f=~/.cache/zsh/$name.zsh
   [[ -s $f ]] && source $f
+}
+
+# _zcomp <name> <cmd...> — _zgen into ~/.cache/zsh/completions/_<name>, an fpath
+# completion file compinit autoloads on first use instead of sourcing eagerly. Must be
+# called (and the cache dir added to fpath) before compinit/oh-my-zsh.sh runs.
+_zcomp() {
+  local name=$1; shift
+  _zgen ~/.cache/zsh/completions/_$name "$@"
 }
 
 # Which plugins would you like to load?
@@ -194,8 +212,12 @@ zinit light-mode for \
 
 zinit light zsh-users/zsh-completions
 
-# Load completions
-fpath=(~/.zfunc $fpath)
+# Load completions. ~/.cache/zsh/completions holds generated completion files (uv/uvx
+# below) that must land in fpath before compinit (inside oh-my-zsh.sh) runs, so compinit
+# autoloads them on first use instead of us sourcing them eagerly on every startup.
+fpath=(~/.zfunc ~/.cache/zsh/completions $fpath)
+_zcomp uv uv generate-shell-completion zsh
+_zcomp uvx uvx --generate-shell-completion zsh
 
 source $ZSH/oh-my-zsh.sh
 zinit cdreplay -q
@@ -382,10 +404,6 @@ if [[ $ZSH_THEME == agnoster ]]; then
   : ${AGNOSTER_CONTEXT_BG:='NONE'}
   : ${AGNOSTER_DIR_BG:=blue}
 fi
-
-### uv / uvx completions
-_zcache uv uv generate-shell-completion zsh
-_zcache uvx uvx --generate-shell-completion zsh
 
 # alias-finder
 zstyle ':omz:plugins:alias-finder' autoload yes # disabled by default
