@@ -33,6 +33,13 @@ fi
 # Path to your Oh My Zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
 
+# Ubuntu's /etc/zsh/zshrc runs its own unconditional `compinit` before ~/.zshrc is even
+# read, then oh-my-zsh.sh runs compinit again — the first pass is pure waste (full
+# compaudit + dump load) since OMZ's own compinit is the one that actually matters.
+# Must live in zshenv: /etc/zsh/zshrc is sourced ahead of ~/.zshrc. No-op on macOS/other
+# distros, which don't check this var.
+skip_global_compinit=1
+
 # You may need to manually set your language environment
 export LANG=en_AU.UTF-8
 
