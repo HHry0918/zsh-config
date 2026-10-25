@@ -6,6 +6,15 @@
 # version numbers. Check whether the installed binary supports the flag this repo
 # actually needs, and only fetch a replacement if that probe fails.
 
+# is_wsl — true only under WSL (kernel osrelease says microsoft/WSL, or WSL sets
+# WSL_DISTRO_NAME). Gates the WSLg-only Terminator/GTK/locale fixes so plain Ubuntu
+# and macOS are untouched.
+is_wsl() {
+  [[ "$(uname -s)" == Linux ]] || return 1
+  [[ -n "${WSL_DISTRO_NAME:-}" ]] && return 0
+  grep -qiE 'microsoft|wsl' /proc/sys/kernel/osrelease 2>/dev/null
+}
+
 # probe TOOL — does the installed binary support the flag this config actually needs?
 #
 # Each "X --help | grep -q Y" is wrapped in ( set +o pipefail; ... ): grep -q closes its

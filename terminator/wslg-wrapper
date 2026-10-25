@@ -1,0 +1,4 @@
+#!/bin/sh
+# Use XWayland so WSLg/PowerToys see the true window frame (no CSD shadow)
+export GDK_BACKEND=x11
+exec /usr/bin/terminator "$@"

@@ -1,0 +1,2 @@
+/* WSLg: CSD shadows make snapped windows misaligned */
+decoration, window.csd decoration { box-shadow: none; margin: 0; }

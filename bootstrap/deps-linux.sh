@@ -48,6 +48,13 @@ fi
 # pre-install inventory checks and what actually gets fetched here.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib-tools.sh"
 
+# WSL only: fresh WSL Ubuntu images ship no generated locales, but zsh/zshenv exports
+# LANG=en_AU.UTF-8 — GTK apps (Terminator) then warn "Locale not supported by C library".
+if is_wsl && sudo -n true 2>/dev/null && ! locale -a 2>/dev/null | grep -qiE '^en_AU\.utf-?8$'; then
+  sudo sed -i 's/^# *\(en_AU\.UTF-8 UTF-8\)/\1/' /etc/locale.gen
+  sudo locale-gen en_AU.UTF-8
+fi
+
 install_release bat    sharkdp/bat       bat
 install_release fd     sharkdp/fd        fd
 install_release lsd    lsd-rs/lsd        lsd

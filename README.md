@@ -15,6 +15,8 @@ theme (agnoster kept as a fallback). Installs onto a fresh Ubuntu or macOS box v
   delta theming, global `.gitignore`, an optional `hooks/pre-commit` (gitleaks-backed
   secret-commit guard, tracked but never wired up automatically by `install.sh`).
 - `bat/`, `ripgrep/`, `fd/`, `lsd/`, `tmux/`, `vim/`, `ghostty/` — per-tool config.
+- `terminator/wslg-wrapper`, `gtk/gtk.css` — WSL-only Terminator window-snapping fix
+  (see "WSL / Terminator snapping" below).
 - `bootstrap/` — `lib-tools.sh` (shared capability probes + best-effort GitHub-release
   fetcher, used by both scripts below and by `install.sh`'s tool inventory),
   `deps-linux.sh` (apt) and `deps-macos.sh` (Homebrew) — installs `fzf`, `delta`, `fd`,
@@ -158,6 +160,29 @@ leaves `$? = 1` whenever X is absent — zsh doesn't reset it afterward, so it's
 sitting there at your very first prompt. Both `zsh/zshenv` (sourcing
 `~/.zshenv.secrets`) and `zsh/zshrc` (sourcing `~/.zshrc.local`) use `if … fi` instead,
 and `zsh/zshrc` ends with a literal `true` as a final safety net.
+
+## WSL / Terminator snapping
+
+On WSL (WSLg), GTK picks the Wayland backend and draws client-side decorations with an
+invisible shadow margin. WSLg hands each window to Windows as an RDP-RAIL window whose
+rectangle includes that shadow, so PowerToys FancyZones and Win+Arrow snap the shadow
+box — gaps at zone edges, and content that doesn't reflow. Forcing X11 (XWayland) gets
+server-side decorations whose frame matches the real window.
+
+Only when `is_wsl` (in `bootstrap/lib-tools.sh`) is true — plain Ubuntu and macOS are
+untouched:
+
+- `install.sh` (Terminator detected) copies `gtk/gtk.css` to `~/.config/gtk-3.0/`
+  (strips the CSD shadow — a fallback for anything still on Wayland), and prints the
+  sudo command to install `terminator/wslg-wrapper` as `/usr/local/bin/terminator`
+  (sets `GDK_BACKEND=x11`; ahead of `/usr/bin` on PATH, so the Start-menu shortcut uses
+  it too). It's a system path, so install.sh prints the command rather than running it.
+- `bootstrap/deps-linux.sh` generates the `en_AU.UTF-8` locale `zsh/zshenv` exports
+  (fresh WSL images have none, and GTK warns "Locale not supported by C library").
+
+After installing the wrapper, close **every** Terminator window — it reuses a single
+process, so a new window would otherwise still be on Wayland. Undo: delete
+`/usr/local/bin/terminator`.
 
 ## Why not stow/chezmoi
 

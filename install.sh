@@ -54,6 +54,8 @@ What this script checks and installs, in order:
      oh-my-zsh/fzf-tab/
      powerlevel10k frameworks, installs the MesloLGS NF font, and — on Terminator
      only — writes a font stanza if none exists yet (never edits an existing one).
+     On WSL + Terminator only, also copies gtk/gtk.css and prints the sudo command
+     for the GDK_BACKEND=x11 wrapper (fixes PowerToys/Win+Arrow snapping).
   5. Switches the login shell to zsh if it isn't already (needs zsh listed in
      /etc/shells; never auto-appends to that file).
 
@@ -566,6 +568,21 @@ EOF
     echo "install.sh: $terminator_config already has [profiles] but no font — add manually under [[default]]: use_system_font = False / font = MesloLGS NF 11"
   else
     echo "install.sh: $terminator_config already sets a font, leaving it alone"
+  fi
+fi
+
+### WSLg + Terminator snapping — WSL only. Under WSLg, GTK picks the Wayland backend and
+### draws client-side decorations with an invisible shadow; that shadow becomes part of
+### the Windows RAIL window, so PowerToys FancyZones / Win+Arrow snap the wrong
+### rectangle. Forcing X11 gives server-side decorations with a true frame. The wrapper
+### lives in /usr/local/bin (so the Start-menu shortcut picks it up too) — a system
+### path, so print the sudo command rather than writing it, like /etc/shells above.
+if [[ "$TERM_APP" == terminator ]] && is_wsl; then
+  copy gtk/gtk.css ~/.config/gtk-3.0/gtk.css
+  if ! cmp -s "$REPO_DIR/terminator/wslg-wrapper" /usr/local/bin/terminator; then
+    echo "install.sh: WSL detected — to fix Terminator window snapping, install the X11 wrapper:"
+    echo "  sudo install -m 755 \"$REPO_DIR/terminator/wslg-wrapper\" /usr/local/bin/terminator"
+    echo "  then close every Terminator window (it reuses one process) and reopen it"
   fi
 fi
 
