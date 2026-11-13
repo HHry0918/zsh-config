@@ -6,17 +6,21 @@
 # (those exist only in the caller's shell; a subprocess never sees them).
 #
 # Subcommands:
-#   fzf-tab-help usage        -- WORDS...        Usage block (CLI's own top help) + divider.
+#   fzf-tab-help usage        -- WORDS...        Usage block (CLI's own top help) + full-width divider.
 #   fzf-tab-help usage-lines  -- WORDS...        Line count of the above, for --preview-window ~N.
-#   fzf-tab-help block WORD DESC -- WORDS...     Commands block for the focused candidate.
+#   fzf-tab-help has-subcmds  -- WORDS...        Exit 0 if the command has a Commands:-style heading, 1 if flat --options.
+#   fzf-tab-help block WORD DESC -- WORDS...     Commands/Options block for the focused candidate.
+#   fzf-tab-help options     -- WORDS...         FLAG<TAB>TAKESVALUE<TAB>DESC rows, heuristically
+#                                                 parsed from --help, for a flat (no-subcommand) command.
 #
 # WORDS... is the full `${words[@]}` of the command line being completed.
 #
 # Cache: ~/.cache/zsh/fzf-tab-help/<sanitized-cmdpath>.txt — PLAIN text only (no bat).
-# Slicing (Usage cut, usage-lines count, option-block scan) all runs on this plain
-# text. bat only renders the final slices, at output time, in the caller's zstyle —
-# never here. (Piping bat-decorated text into these regexes breaks them: tested,
-# a 7-line help became 12 lines and the Commands-heading regex stopped matching.)
+# Slicing (Usage cut, usage-lines count, option-block scan, has-subcmds) all runs
+# on this plain text. bat (_fth_colour) only renders the already-sliced output,
+# at the two final `print` calls below — never fed back into the regexes above.
+# (Piping bat-decorated text into these regexes breaks them: tested, a 7-line
+# help became 12 lines and the Commands-heading regex stopped matching.)
 
 emulate -L zsh
 # typeset_silent: fzf-tab's preview template EXPORTS $word/$desc before exec'ing
@@ -27,8 +31,51 @@ emulate -L zsh
 # "desc=" junk lines appearing above the Usage block in every preview.
 setopt extendedglob no_nomatch typeset_silent
 
-typeset -g FZF_TAB_HELP_DIVIDER='──── Commands ────'
 typeset -g _fth_cachedir=${FZF_TAB_HELP_CACHE_DIR:-~/.cache/zsh/fzf-tab-help}
+# Set by _fth_usage_lines: 1 if the help text has a Commands/Subcommands-style
+# heading (this command has subcommands), 0 if it's a flat --options command
+# (ls, rg, fd...). Drives both the divider label and the 'has-subcmds' exit code.
+typeset -g _fth_has_subcmds=0
+
+# _fth_divider LABEL -> a single '─'-filled line with " LABEL " centered,
+# padded to $FZF_PREVIEW_COLUMNS (fzf exports this to preview commands; same
+# var the Usage block already uses for --help/man width) so the rule spans
+# the whole preview pane instead of a fixed-width fragment on the left.
+_fth_divider() {
+  local label=" $1 "
+  local width=${FZF_PREVIEW_COLUMNS:-80}
+  local total=$(( width - ${#label} ))
+  (( total < 0 )) && total=0
+  local left=$(( total / 2 )) right=$(( total - total / 2 ))
+  local e=''
+  print -r -- "${(l:$left::─:)e}${label}${(l:$right::─:)e}"
+}
+
+# _fth_is_cmd_heading LINE -> true if LINE looks like a "here's the list of
+# subcommands" heading. Covers explicit headings (Commands:, COMMANDS, etc.)
+# AND prose like git --help's "These are common Git commands used in various
+# situations:" — unindented, mentions "command", ends with ':'. Indented lines
+# that merely mention "command" (e.g. rg --help's "For example, a shell script
+# for COMMAND might look like:") are excluded by the indentation check.
+_fth_is_cmd_heading() {
+  local l=$1
+  [[ $l == (#i)(Commands|Subcommands|'Available Commands'|COMMANDS)(:|[[:space:]]#:[[:space:]]#)* ]] && return 0
+  [[ $l == [[:space:]]* ]] && return 1
+  [[ $l == *(#i)command*: ]] && return 0
+  return 1
+}
+
+# _fth_colour -> pipes stdin through bat's 'help' syntax (flags/placeholders/
+# headings) when bat is available, else passes through unchanged. Cache stays
+# plain text (col -bx'd, no bat) — colouring happens only at print time, same
+# split as the man-page bat colouring in the help-accept-line widget.
+_fth_colour() {
+  if (( $+commands[bat] )); then
+    bat --language=help --style=plain --color=always --paging=never --wrap=never
+  else
+    cat
+  fi
+}
 
 # NOTE: not `zstyle -a` — this script is a separate process (see the
 # help-form comment in _fth_help below for why), so it reads the caller's
@@ -174,6 +221,197 @@ _fth_help() {
   cat -- "$f"
 }
 
+# _fth_help_at_width WIDTH C1 -> like _fth_help, but pins COLUMNS to WIDTH for
+# the --help capture and caches separately ($key.wWIDTH.txt) from _fth_help's
+# own cache entry (shared by usage/block/has-subcmds, which intentionally vary
+# by the live $FZF_PREVIEW_COLUMNS). _fth_options_lines below needs ONE
+# deterministic layout per command regardless of pane width — confirmed live:
+# lsd wraps a flag's description onto the SAME line as the flag at
+# COLUMNS=120, but onto the NEXT line at COLUMNS=80, which would silently
+# flip the TAKESVALUE parse depending on whatever width happened to populate
+# a shared cache first. Single-word-only (C1, not a full cmdpath) — options
+# only applies to flat, no-subcommand commands, same as has-subcmds/usage
+# already take just $cmd1.
+_fth_help_at_width() {
+  local width=$1 c1=$2
+  local key=${c1//[^A-Za-z0-9._-]/%}
+  [[ -z $key ]] && key='_'
+  local f=$_fth_cachedir/$key.w$width.txt
+  local bin=${commands[$c1]:-}
+
+  if [[ -e $f ]]; then
+    local regen=0
+    if [[ -n $bin ]]; then
+      [[ $f -ot $bin ]] && regen=1
+    else
+      local now mtime
+      now=$EPOCHSECONDS
+      mtime=$(_fth_mtime "$f")
+      [[ -z $mtime ]] && regen=1
+      (( now - ${mtime:-0} > 7 * 86400 )) && regen=1
+    fi
+    if (( ! regen )); then
+      cat -- "$f"
+      return
+    fi
+  fi
+
+  [[ -z $bin ]] && return
+
+  mkdir -p -- "$_fth_cachedir"
+  local tmp
+  tmp=$(mktemp "${f}.XXXXXX")
+
+  local out rc=0
+  out=$(env PAGER=cat MANPAGER=cat GIT_PAGER=cat NO_COLOR=1 COLUMNS=$width timeout 2 "$c1" --help </dev/null 2>&1 | col -bx)
+  rc=$pipestatus[1]
+
+  if (( rc == 124 || rc == 126 || rc == 127 )); then
+    rm -f -- "$tmp"
+    print -r -- "$out"
+    return
+  fi
+
+  print -r -- "$out" >| "$tmp"
+  mv -- "$tmp" "$f"
+  cat -- "$f"
+}
+
+# _fth_options_lines C1 -> prints FLAG<TAB>TAKESVALUE<TAB>DESC rows parsed
+# heuristically from `C1 --help` at a fixed width (see _fth_help_at_width).
+#
+# Per candidate flag-declaration line: split on ','; each trimmed segment's
+# leading token (-[alnum] or --[alnum][alnum_-]*, optionally followed
+# immediately by '=') is a FLAG on that line. Whatever remains after the
+# token+'=' is split at the first run of 2+ spaces: the part BEFORE that
+# gutter is a value placeholder (if non-empty, TAKESVALUE=1 for every flag on
+# the line, not just the segment that showed it — clap/rg only ever put the
+# placeholder on one alias of a group); the part AFTER the gutter (if any) is
+# that line's own same-line description text (e.g. a flat CLI's
+# "-a, --all    Do not ignore entries starting with .").
+#
+# Flag-line vs. continuation is by a STICKY description-indent, not "deeper
+# than the previous flag line" (the latter misreads indent-6 long-only lines,
+# e.g. lsd's --color/--date/--sort, as continuations of an indent-2 line that
+# precedes them). The indent is established ONCE per command, from the first
+# line after a flag line that does NOT itself parse as a flag-declaration.
+# Before it's known, a line is a flag line purely by the comma-segment rule;
+# after, a line is a flag line only if ALSO shallower than that indent. A
+# blank line ends the current flag's description (not parsing entirely); a
+# non-blank indent-0 line that isn't a flag line ends parsing entirely once
+# the indent is known (a trailing section header, e.g. rg's "SEARCH
+# OPTIONS:"), but is just skipped (still looking for the first flag line) if
+# not.
+#
+# Known gap (documented, not fixed): bundled short flags whose last letter
+# takes a value (-At) fall back to TAKESVALUE=0 — same class of imperfection
+# as no heuristic at all, not a new failure mode.
+_fth_options_lines() {
+  local c1=$1
+  local text
+  text=$(_fth_help_at_width 80 "$c1")
+  [[ -z $text ]] && return
+  print -r -- "$text" | awk '
+    function ltrim(s) { sub(/^[ \t]+/, "", s); return s }
+    function rtrim(s) { sub(/[ \t]+$/, "", s); return s }
+    function trim(s) { return rtrim(ltrim(s)) }
+
+    function parse_seg(seg,    s, tok, tail, gpos) {
+      s = ltrim(seg)
+      if (match(s, /^--[A-Za-z0-9_][A-Za-z0-9_-]*/)) {
+        tok = substr(s, RSTART, RLENGTH)
+        tail = substr(s, RSTART + RLENGTH)
+      } else if (match(s, /^-[A-Za-z0-9]/)) {
+        tok = substr(s, RSTART, RLENGTH)
+        tail = substr(s, RSTART + RLENGTH)
+      } else {
+        return 0
+      }
+      g_flag = tok
+      if (substr(tail, 1, 1) == "=") tail = substr(tail, 2)
+      gpos = 0
+      if (match(tail, /  +/)) gpos = RSTART
+      if (gpos > 0) {
+        g_valuepart = trim(substr(tail, 1, gpos - 1))
+        g_descpart = trim(substr(tail, gpos))
+      } else {
+        g_valuepart = trim(tail)
+        g_descpart = ""
+      }
+      return 1
+    }
+
+    function parse_flagline(content,    n, i, segs, anyvalue, desc) {
+      n = split(content, segs, ",")
+      nflags = 0
+      anyvalue = 0
+      desc = ""
+      for (i = 1; i <= n; i++) {
+        if (!parse_seg(segs[i])) return 0
+        nflags++
+        line_flags[nflags] = g_flag
+        if (g_valuepart != "") anyvalue = 1
+        if (g_descpart != "") desc = g_descpart
+      }
+      line_takesvalue = anyvalue ? 1 : 0
+      line_descpart = desc
+      return (nflags > 0)
+    }
+
+    function flush(    i, f) {
+      for (i = 1; i <= pending_n; i++) {
+        f = pending_flags[i]
+        if (!(f in seen)) {
+          seen[f] = 1
+          printf "%s\t%d\t%s\n", f, pending_takesvalue, pending_desc
+        }
+      }
+      have_pending = 0
+      delete pending_flags
+      pending_n = 0
+      pending_desc = ""
+      pending_takesvalue = 0
+    }
+
+    BEGIN { desc_indent = -1; have_pending = 0; pending_n = 0 }
+
+    {
+      line = $0
+      match(line, /^ */); indent = RLENGTH
+      content = rtrim(substr(line, indent + 1))
+
+      if (content == "") { if (have_pending) flush(); next }
+
+      is_flag = parse_flagline(content)
+
+      if (is_flag && (desc_indent == -1 || indent < desc_indent)) {
+        if (have_pending) flush()
+        have_pending = 1
+        delete pending_flags
+        pending_n = nflags
+        for (i = 1; i <= nflags; i++) pending_flags[i] = line_flags[i]
+        pending_takesvalue = line_takesvalue
+        pending_desc = line_descpart
+        next
+      }
+
+      if (indent == 0) {
+        if (desc_indent == -1) next
+        if (have_pending) flush()
+        exit
+      }
+
+      if (have_pending) {
+        if (desc_indent == -1) desc_indent = indent
+        pending_desc = (pending_desc != "" ? pending_desc " " content : content)
+      }
+      next
+    }
+
+    END { if (have_pending) flush() }
+  '
+}
+
 # _fth_usage_lines -> sets global array `usage_arr` to the Usage-block lines
 # (capped at 15, plus a '…' marker), cut at the first Commands-style heading.
 _fth_usage_lines() {
@@ -182,9 +420,11 @@ _fth_usage_lines() {
   out=$(_fth_help "$c1")
   local -a lines=("${(f)out}")
   usage_arr=()
+  _fth_has_subcmds=0
   local l count=0
   for l in "${lines[@]}"; do
-    if [[ $l == (#i)(Commands|Subcommands|'Available Commands'|COMMANDS)(:|[[:space:]]#:[[:space:]]#)* ]]; then
+    if _fth_is_cmd_heading "$l"; then
+      _fth_has_subcmds=1
       break
     fi
     usage_arr+=("$l")
@@ -216,13 +456,25 @@ case $sub in
   usage)
     local -a usage_arr
     _fth_usage_lines "$cmd1"
-    print -rl -- "${usage_arr[@]}"
-    print -r -- "$FZF_TAB_HELP_DIVIDER"
+    print -rl -- "${usage_arr[@]}" | _fth_colour
+    if (( _fth_has_subcmds )); then
+      _fth_divider Commands
+    else
+      _fth_divider Options
+    fi
     ;;
   usage-lines)
     local -a usage_arr
     _fth_usage_lines "$cmd1"
     print $(( $#usage_arr + 1 ))
+    ;;
+  has-subcmds)
+    local -a usage_arr
+    _fth_usage_lines "$cmd1"
+    (( _fth_has_subcmds )) || exit 1
+    ;;
+  options)
+    _fth_options_lines "$cmd1"
     ;;
   block)
     local out=''
@@ -246,7 +498,7 @@ case $sub in
         [[ -z $out ]] && out=${desc#*--}; out=${out##[[:space:]]##}
       fi
     fi
-    print -r -- "$out"
+    print -r -- "$out" | _fth_colour
     ;;
   *)
     exit 1
