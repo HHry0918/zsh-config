@@ -176,3 +176,111 @@ EOF
         return 1
     fi
 }
+
+########################################################################################
+# macOS
+
+# Install one DMG: mount, copy .app / run .pkg, unmount. Used by dmg_install.
+_dmg_install_one() {
+    local dmg="$1" dest="$2"
+    local mnt item name rc=0 found=0 sudo_cmd=""
+
+    if [[ ! -f "$dmg" ]]; then
+        echo "Error: file not found: $dmg" >&2
+        return 1
+    fi
+
+    mnt="$(mktemp -d)" || return 1
+    if ! yes | hdiutil attach "$dmg" -nobrowse -noautoopen -mountpoint "$mnt" >/dev/null 2>&1; then
+        echo "Error: failed to mount $dmg" >&2
+        rmdir "$mnt" 2>/dev/null
+        return 1
+    fi
+    echo "Mounted $dmg"
+
+    [[ -w "$dest" ]] || sudo_cmd="sudo"
+
+    while IFS= read -r item; do
+        [[ -z "$item" ]] && continue
+        case "$item" in
+        *.app)
+            name="$(basename "$item")"
+            found=1
+            $sudo_cmd rm -rf "${dest:?}/$name" &&
+                $sudo_cmd ditto "$item" "$dest/$name" || rc=1
+            [[ $rc -eq 0 ]] && echo "Installed $name -> $dest"
+            ;;
+        *.pkg | *.mpkg)
+            found=1
+            sudo installer -pkg "$item" -target / || rc=1
+            [[ $rc -eq 0 ]] && echo "Installed $(basename "$item")"
+            ;;
+        esac
+    done < <(find "$mnt" -maxdepth 1 -mindepth 1 \( -name '*.app' -o -name '*.pkg' -o -name '*.mpkg' \))
+
+    if [[ $found -eq 0 ]]; then
+        echo "Error: no .app or .pkg found in $dmg. Contents:" >&2
+        ls -A "$mnt" >&2
+        rc=1
+    fi
+
+    hdiutil detach "$mnt" -quiet || hdiutil detach "$mnt" -force -quiet
+    rmdir "$mnt" 2>/dev/null
+    echo "Detached $dmg"
+    return $rc
+}
+
+dmg_install() {
+    local dest="/Applications"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+        -h | --help)
+            cat <<'EOF'
+Usage: dmg_install [--dest <dir>] <file.dmg> [file.dmg ...]
+
+Mount each DMG, install the .app (copied with ditto) or .pkg (via installer)
+found at its top level, then unmount it. License agreements are auto-accepted.
+
+Options:
+  --dest <dir>   Where .app bundles are copied (default: /Applications)
+  -h, --help     Show this help
+
+Examples:
+  dmg_install ~/Downloads/MyApp.dmg
+  dmg_install --dest ~/Applications ~/Downloads/A.dmg ~/Downloads/B.dmg
+EOF
+            return 0
+            ;;
+        --dest)
+            [[ $# -lt 2 ]] && {
+                echo "Error: --dest requires a value" >&2
+                return 1
+            }
+            dest="$2"
+            shift 2
+            ;;
+        *)
+            break
+            ;;
+        esac
+    done
+
+    if [[ $# -eq 0 ]]; then
+        echo "Usage: dmg_install [--dest <dir>] <file.dmg> [file.dmg ...] (see --help)" >&2
+        return 1
+    fi
+
+    local dmg total=$#
+    local -a failed=()
+    for dmg in "$@"; do
+        _dmg_install_one "$dmg" "$dest" || failed+=("$dmg")
+    done
+
+    if [[ ${#failed[@]} -eq 0 ]]; then
+        echo "✓ All $total installed."
+    else
+        echo "✗ Failed: ${failed[*]}" >&2
+        return 1
+    fi
+}
