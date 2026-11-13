@@ -28,6 +28,12 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     fi
   done
   unset _brew_prefix _gnubin
+else
+  # Linux: man-db/groff emits ANSI SGR color codes by default. `col -bx` (see
+  # MANPAGER below) only strips backspace overstrike, not ANSI — without this,
+  # col -bx would leave literal "[1m"-style escape junk in man pages. Forcing
+  # overstrike here means col -bx cleans the same way on both platforms.
+  export GROFF_NO_SGR=1
 fi
 
 # Path to your Oh My Zsh installation.
@@ -52,7 +58,13 @@ export DEFAULT_USER=''
 # bat README, Troubleshooting → "Garbled output": man-db emits SGR escapes and bat's default
 # --strip-ansi=never passes them through while highlighting, splitting ESC[24m into literal
 # "[38;2;…m24m" text at every cross-reference. auto strips them (never plain text with -lman).
-export MANPAGER="bat -lman --strip-ansi=auto"
+#
+# col -bx runs first: macOS man (mandoc) marks bold/underline with backspace
+# overstrike (X^HX) instead of SGR, which --strip-ansi never touches — without
+# this, man pages render with literal ^H garbage (e.g. "g^Hgi^Hit^Ht" instead
+# of "git"). Verified across ls, git-commit, tmux, rg, bat, fzf, ssh, curl, man,
+# crontab(5): every ^H line gone after col -bx, zero before/after on ANSI.
+export MANPAGER="sh -c 'col -bx | bat -lman --strip-ansi=auto'"
 
 # Mouse-wheel scrolling in less (needs less >= 551). Deliberately set via LESS, not
 # BAT_PAGER: less reads LESS itself, whereas any argument in BAT_PAGER makes bat skip
@@ -77,6 +89,10 @@ export HEADROOM_HOST="127.0.0.1"
 export HEADROOM_MODE="cache"
 export HEADROOM_BACKEND="anthropic"
 export HEADROOM_TELEMETRY="off"
+export HEADROOM_EMBEDDER_RUNTIME="cpu"
+export HEADROOM_KOMPRESS_BACKEND="onnx"
+export HEADROOM_LOSSLESS="1"
+export HEADROOM_LOG_MESSAGES="true"
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
 export ENABLE_TOOL_SEARCH="true"
 export OPENAI_BASE_URL="http://127.0.0.1:8787/v1"
@@ -92,6 +108,10 @@ export OMP_WAIT_POLICY=PASSIVE
 
 # Homebrew
 export HOMEBREW_NO_ANALYTICS=1
+
+# uv: trust the system/OS certificate store instead of bundling its own CA set
+# (needed behind some corporate TLS-inspecting proxies).
+export UV_SYSTEM_CERTS="1"
 
 # Secrets, sourced last so they can override/extend the above. Not tracked by this
 # repo — see README.md. `if ... fi`, not `[[ ]] &&`: a bare trailing `&&` makes this
