@@ -59,9 +59,10 @@ What this script checks and installs, in order:
   5. Switches the login shell to zsh if it isn't already (needs zsh listed in
      /etc/shells; never auto-appends to that file).
 
-Two files this script never writes secrets/identity into automatically — you own
-them: ~/.zshenv.secrets (create it yourself, chmod 600 — no template ships) and
-~/.gitconfig.local (holds your `git config user.name`/`user.email`).
+~/.zshenv.secrets is never written automatically — create it yourself, chmod 600
+(no template ships). Git identity (user.name/user.email) is prompted for once,
+interactively, and written with `git config --global` — see the git identity
+section below for why a re-run can overwrite it.
 
 Every run is logged to /tmp/zsh-config-install-<UTC-timestamp>.log.
 
@@ -507,6 +508,7 @@ copy zsh/omz-custom/themes/agnoster.zsh-theme  ~/.oh-my-zsh/custom/themes/agnost
 copy zsh/dircolors                             ~/.dircolors
 copy zsh/utils.sh                              ~/utils.sh
 copy_dir zsh/zfunc                             ~/.zfunc
+copy zsh/bin/fzf-tab-help                      ~/.local/bin/fzf-tab-help
 
 copy git/gitconfig                             ~/.gitconfig
 copy git/gitmessage                            ~/.gitmessage
@@ -586,64 +588,36 @@ if [[ "$TERM_APP" == terminator ]] && is_wsl; then
   fi
 fi
 
-### git identity — never written without asking. `~/.gitconfig` already `[include]`s
-### ~/.gitconfig.local (see git/gitconfig), so a plain `--global` read here correctly
-### reflects identity set via either file.
+### git identity — global only, no ~/.gitconfig.local/include indirection. install.sh
+### manages ~/.gitconfig (copies it from git/gitconfig on every run — see the `copy
+### git/gitconfig ~/.gitconfig` line below), so writing identity straight into it
+### means a later re-run backs it up and wipes it from the live file; re-running
+### this prompt is the accepted way to re-enter it, not a bug.
 if $DRY_RUN; then
   echo "+ prompt for git identity (skipped in dry run)"
 elif git config --global user.email >/dev/null 2>&1; then
   echo "install.sh: git identity already set ($(git config --global user.email)), skipping"
 elif [[ ! -t 0 ]]; then
   echo "install.sh: no git user.name/email set yet, and no TTY to prompt on. Set it later:"
-  echo "  git config -f ~/.gitconfig.local user.name  \"Your Name\""
-  echo "  git config -f ~/.gitconfig.local user.email \"you@example.com\""
+  echo "  git config --global user.name  \"Your Name\""
+  echo "  git config --global user.email \"you@example.com\""
 else
-  read -r -p "install.sh: no git user.name/email set yet. Provide them now? [y/N] " want_id
-  case "$want_id" in
-    y|Y|yes|YES)
-      read -r -p "  git user.name: " git_name
-      [[ -z "$git_name" ]] && read -r -p "  git user.name (required): " git_name
-      read -r -p "  git user.email: " git_email
-      [[ -z "$git_email" ]] && read -r -p "  git user.email (required): " git_email
-      if [[ -z "$git_name" || -z "$git_email" ]]; then
-        echo "install.sh: no name/email given, skipping — set it later with:"
-        echo "  git config -f ~/.gitconfig.local user.name  \"Your Name\""
-        echo "  git config -f ~/.gitconfig.local user.email \"you@example.com\""
-      else
-        read -r -p "  Set it (1) globally in ~/.gitconfig, or (2) locally [recommended]? [1/2] " scope
-        if [[ "$scope" == 1 ]]; then
-          echo "install.sh: WARNING — install.sh manages ~/.gitconfig (copies it from git/gitconfig on every run). An identity written directly into it will look like a diff on your next re-run and get backed up + overwritten."
-          read -r -p "  Really write into ~/.gitconfig anyway? [y/N] " confirm_global
-          case "$confirm_global" in
-            y|Y|yes|YES)
-              git config --global user.name "$git_name"
-              git config --global user.email "$git_email"
-              echo "install.sh: wrote user.name/email to ~/.gitconfig"
-              ;;
-            *)
-              echo "install.sh: cancelled — nothing written."
-              ;;
-          esac
-        else
-          read -r -p "  Path for the local identity file [~/.gitconfig.local]: " local_path
-          local_path="${local_path:-~/.gitconfig.local}"
-          local_path="${local_path/#\~/$HOME}"
-          git config -f "$local_path" user.name "$git_name"
-          git config -f "$local_path" user.email "$git_email"
-          echo "install.sh: wrote user.name/email to $local_path"
-          if ! grep -qsF "$local_path" ~/.gitconfig.local ~/.gitconfig 2>/dev/null && [[ "$local_path" != "$HOME/.gitconfig.local" ]]; then
-            echo "install.sh: $local_path isn't included by anything yet — wire it in with:"
-            echo "  git config --global include.path $local_path"
-          fi
-        fi
-      fi
-      ;;
-    *)
-      echo "install.sh: skipping — set it later with:"
-      echo "  git config -f ~/.gitconfig.local user.name  \"Your Name\""
-      echo "  git config -f ~/.gitconfig.local user.email \"you@example.com\""
-      ;;
-  esac
+  echo "install.sh: no git user.name/email set yet."
+  echo "install.sh: this will write directly into ~/.gitconfig via 'git config --global'."
+  echo "install.sh: WARNING — install.sh overwrites ~/.gitconfig from git/gitconfig on every"
+  echo "  re-run, backing up (and removing) whatever identity is in it at the time. Re-running"
+  echo "  install.sh means re-entering this prompt; leave it blank now to skip entirely."
+  read -r -p "  git user.name (leave blank to skip): " git_name
+  read -r -p "  git user.email (leave blank to skip): " git_email
+  if [[ -z "$git_name" || -z "$git_email" ]]; then
+    echo "install.sh: name/email left blank, skipping — set it later with:"
+    echo "  git config --global user.name  \"Your Name\""
+    echo "  git config --global user.email \"you@example.com\""
+  else
+    git config --global user.name "$git_name"
+    git config --global user.email "$git_email"
+    echo "install.sh: wrote user.name/email to ~/.gitconfig"
+  fi
 fi
 
 ensure_zsh_shell
