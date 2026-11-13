@@ -1,0 +1,229 @@
+#!/usr/bin/env zsh
+# fzf-tab-help — generic per-command Usage/Commands help preview for fzf-tab.
+#
+# Called from the fzf-tab preview/completion shell as a separate process, so it
+# gets everything as quoted ARGUMENTS — no $word/$desc/$ctxt/$words inheritance
+# (those exist only in the caller's shell; a subprocess never sees them).
+#
+# Subcommands:
+#   fzf-tab-help usage        -- WORDS...        Usage block (CLI's own top help) + divider.
+#   fzf-tab-help usage-lines  -- WORDS...        Line count of the above, for --preview-window ~N.
+#   fzf-tab-help block WORD DESC -- WORDS...     Commands block for the focused candidate.
+#
+# WORDS... is the full `${words[@]}` of the command line being completed.
+#
+# Cache: ~/.cache/zsh/fzf-tab-help/<sanitized-cmdpath>.txt — PLAIN text only (no bat).
+# Slicing (Usage cut, usage-lines count, option-block scan) all runs on this plain
+# text. bat only renders the final slices, at output time, in the caller's zstyle —
+# never here. (Piping bat-decorated text into these regexes breaks them: tested,
+# a 7-line help became 12 lines and the Commands-heading regex stopped matching.)
+
+emulate -L zsh
+setopt extendedglob no_nomatch
+
+typeset -g FZF_TAB_HELP_DIVIDER='──── Commands ────'
+typeset -g _fth_cachedir=${FZF_TAB_HELP_CACHE_DIR:-~/.cache/zsh/fzf-tab-help}
+
+# NOTE: not `zstyle -a` — this script is a separate process (see the
+# help-form comment in _fth_help below for why), so it reads the caller's
+# zstyle via $FZF_TAB_HELP_NO_SUBHELP (zsh/zshrc serializes the
+# ':fzf-tab-help:*' no-subhelp zstyle into it) instead of looking it up
+# directly, which would always come back empty here.
+typeset -ga _fth_no_subhelp
+_fth_no_subhelp=(${(s: :)FZF_TAB_HELP_NO_SUBHELP})
+(( $#_fth_no_subhelp )) || _fth_no_subhelp=(ssh scp sftp mosh rsync telnet nc sudo doas su)
+
+_fth_denylisted() {
+  (( ${_fth_no_subhelp[(Ie)$1]} ))
+}
+
+_fth_mtime() {
+  stat -f %m -- "$1" 2>/dev/null || stat -c %Y -- "$1" 2>/dev/null
+}
+
+# _fth_cmdpath WORDS... -> sets global array `cp` to words[1] plus up to 2
+# following contiguous words that look like subcommands. The LAST word (the one
+# currently being typed/completed) is excluded from consideration.
+_fth_cmdpath() {
+  local -a all=("$@")
+  local -a candidates
+  if (( $#all > 1 )); then
+    candidates=("${all[@]:0:-1}")
+  else
+    candidates=("${all[@]}")
+  fi
+  cp=()
+  (( $#candidates )) || return
+  cp=("$candidates[1]")
+  local i w
+  for (( i = 2; i <= $#candidates && $#cp < 3; i++ )); do
+    w=$candidates[i]
+    [[ $w == -* ]] && break
+    [[ $w == *=* || $w == */* ]] && break
+    [[ $w == (#b)([A-Za-z][A-Za-z0-9:_.-]#) ]] || break
+    [[ -e $w ]] && break
+    cp+=("$w")
+  done
+}
+
+# _fth_help CMDPATH_WORDS... -> plain-text help for that exact path, cached.
+# NOTE: the local array is named `cpath`, never `path` — `path`/`PATH` are zsh's
+# tied special parameters, and shadowing `path` locally breaks command lookup
+# (PATH resolution) for the rest of this function's scope. (Found the hard way:
+# every external command inside this function silently failed to resolve.)
+_fth_help() {
+  local -a cpath=("$@")
+  local c1=$cpath[1]
+  local key=${(j:_:)cpath}
+  key=${key//[^A-Za-z0-9._-]/%}
+  [[ -z $key ]] && key='_'
+  local f=$_fth_cachedir/$key.txt
+  local bin=${commands[$c1]:-}
+
+  if [[ -e $f ]]; then
+    local regen=0
+    if [[ -n $bin ]]; then
+      [[ $f -ot $bin ]] && regen=1
+    else
+      local now mtime
+      now=$EPOCHSECONDS
+      mtime=$(_fth_mtime "$f")
+      [[ -z $mtime ]] && regen=1
+      (( now - ${mtime:-0} > 7 * 86400 )) && regen=1
+    fi
+    if (( ! regen )); then
+      cat -- "$f"
+      return
+    fi
+  fi
+
+  mkdir -p -- "$_fth_cachedir"
+  local tmp
+  tmp=$(mktemp "${f}.XXXXXX")
+
+  local out=''
+  if (( $#cpath == 1 )); then
+    out=$(env PAGER=cat MANPAGER=cat GIT_PAGER=cat NO_COLOR=1 COLUMNS=${FZF_PREVIEW_COLUMNS:-80} timeout 2 "$c1" --help </dev/null 2>&1 | col -bx)
+  elif [[ -n $bin ]]; then
+    # NOTE: `zstyle -s` can't be used here. This script runs as a separate
+    # process (exec'd by fzf-tab's fzf-flags/fzf-preview zstyles), and zstyle
+    # state never crosses a fork/exec — a `zstyle -s` lookup in this process
+    # always misses, silently falling back to "cmd sub --help" even when the
+    # caller's shell registered an override (reproduced: under a bare
+    # subprocess, obsidian's "aliases" ran its real action instead of help).
+    # zsh/zshrc serializes every ':fzf-tab-help:<cmd>' help-form zstyle into
+    # $FZF_TAB_HELP_FORMS ("cmd\tform" lines) precisely so this process can
+    # see it; read that instead.
+    local form=''
+    local -a _fth_form_lines
+    _fth_form_lines=(${(f)FZF_TAB_HELP_FORMS})
+    local _fth_fl
+    for _fth_fl in $_fth_form_lines; do
+      [[ ${_fth_fl%%$'\t'*} == $c1 ]] && form=${_fth_fl#*$'\t'}
+    done
+    local -a runcmd
+    if [[ -n $form ]]; then
+      # form (e.g. 'help %s') omits the binary name — it's prepended here, so
+      # the zstyle only has to say how THIS CLI likes to be asked for help.
+      local rest=${(j: :)cpath[2,-1]}
+      runcmd=("$c1" ${(z)${form//\%s/$rest}})
+    elif _fth_denylisted "$c1"; then
+      runcmd=()
+    else
+      runcmd=("${cpath[@]}" --help)
+    fi
+    if (( $#runcmd )); then
+      out=$(env PAGER=cat MANPAGER=cat GIT_PAGER=cat NO_COLOR=1 COLUMNS=${FZF_PREVIEW_COLUMNS:-80} timeout 2 "${runcmd[@]}" </dev/null 2>&1 | col -bx)
+    fi
+  fi
+
+  if [[ -z $out && -z $bin ]]; then
+    # builtin/function/alias, no external binary: try a man page.
+    if man -w -- "$c1" >/dev/null 2>&1; then
+      out=$(MANPAGER=cat MANWIDTH=${FZF_PREVIEW_COLUMNS:-80} man -- "$c1" </dev/null 2>/dev/null | col -bx)
+    fi
+  fi
+
+  print -r -- "$out" >| "$tmp"
+  mv -- "$tmp" "$f"
+  cat -- "$f"
+}
+
+# _fth_usage_lines -> sets global array `usage_arr` to the Usage-block lines
+# (capped at 15, plus a '…' marker), cut at the first Commands-style heading.
+_fth_usage_lines() {
+  local c1=$1
+  local out
+  out=$(_fth_help "$c1")
+  local -a lines=("${(f)out}")
+  usage_arr=()
+  local l count=0
+  for l in "${lines[@]}"; do
+    if [[ $l == (#i)(Commands|Subcommands|'Available Commands'|COMMANDS)(:|[[:space:]]#:[[:space:]]#)* ]]; then
+      break
+    fi
+    usage_arr+=("$l")
+    (( count++ ))
+    if (( count >= 15 )); then
+      usage_arr+=('…')
+      break
+    fi
+  done
+}
+
+local sub=$1
+shift
+local word desc
+if [[ $sub == block ]]; then
+  word=$1
+  desc=$2
+  shift 2
+fi
+[[ $1 == '--' ]] && shift
+local -a words=("$@")
+
+local -a cp
+_fth_cmdpath "${words[@]}"
+(( $#cp )) || exit 0
+local cmd1=$cp[1]
+
+case $sub in
+  usage)
+    local -a usage_arr
+    _fth_usage_lines "$cmd1"
+    print -rl -- "${usage_arr[@]}"
+    print -r -- "$FZF_TAB_HELP_DIVIDER"
+    ;;
+  usage-lines)
+    local -a usage_arr
+    _fth_usage_lines "$cmd1"
+    print $(( $#usage_arr + 1 ))
+    ;;
+  block)
+    local out=''
+    if [[ $word == -* ]]; then
+      local h
+      h=$(_fth_help "${cp[@]}")
+      out=$(print -r -- "$h" | awk -v opt="$word" '
+        $0 ~ ("^[[:space:]]+" opt "([=,[:space:]]|$)") { inopt=1; print; next }
+        inopt && /^[[:space:]]{5,}/ { print; next }
+        { inopt=0 }
+      ')
+      [[ -z $out ]] && out=${desc#* -- }
+    elif [[ $word == *=* ]]; then
+      out=$(_fth_help "${cp[@]}")
+    else
+      if _fth_denylisted "$cmd1"; then
+        out=${desc#* -- }
+      else
+        local -a extended=("${cp[@]}" "$word")
+        out=$(_fth_help "${extended[@]}")
+        [[ -z $out ]] && out=${desc#* -- }
+      fi
+    fi
+    print -r -- "$out"
+    ;;
+  *)
+    exit 1
+    ;;
+esac

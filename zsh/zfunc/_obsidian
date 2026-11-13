@@ -1,0 +1,167 @@
+#compdef obsidian
+# zsh completion for the Obsidian CLI (obsidian-cli), generated dynamically
+# by parsing `obsidian help` output. No static command list to keep in sync.
+
+_obsidian_parse() {
+  (( ${#_obsidian_cmds} )) && return
+
+  typeset -gA _obsidian_cmds        # cmd -> description
+  typeset -gA _obsidian_opts_raw    # cmd -> "token\tdesc" lines
+  typeset -ga _obsidian_global_opts_raw  # "token\tdesc" entries
+
+  local -a lines
+  lines=(${(f)"$(obsidian help 2>/dev/null </dev/null)"})
+  (( ${#lines} )) || return
+
+  local section='' cur_cmd='' line rest tok desc
+  for line in $lines; do
+    case $line in
+      'Options:') section=opts; cur_cmd=''; continue ;;
+      'Commands:') section=cmds; cur_cmd=''; continue ;;
+      'Developer:') section=cmds; cur_cmd=''; continue ;;
+      'Notes:'|'Usage:'*) section=skip; continue ;;
+      '') continue ;;
+    esac
+    [[ $section == skip ]] && continue
+
+    if [[ $line == '    '* && $line != '     '* ]]; then
+      # exactly 4-space indent: option line under cur_cmd
+      [[ $section == cmds && -n $cur_cmd ]] || continue
+      rest=${line#    }
+      tok=${rest%% *}
+      desc=${rest#*  }
+      [[ $desc == "$rest" ]] && desc=''
+      _obsidian_opts_raw[$cur_cmd]+=$'\n'"${tok}"$'\t'"${desc}"
+    elif [[ $line == '  '* && $line != '   '* ]]; then
+      # exactly 2-space indent: command name or global option
+      rest=${line#  }
+      tok=${rest%% *}
+      desc=${rest#*  }
+      [[ $desc == "$rest" ]] && desc=''
+      if [[ $section == cmds ]]; then
+        cur_cmd=$tok
+        _obsidian_cmds[$tok]=$desc
+      elif [[ $section == opts ]]; then
+        _obsidian_global_opts_raw+=("${tok}"$'\t'"${desc}")
+      fi
+    fi
+  done
+}
+
+_obsidian_complete_commands() {
+  local -a disp
+  local c
+  for c in ${(k)_obsidian_cmds}; do
+    # _describe's "name:desc" format splits on the FIRST colon — obsidian names
+    # like "base:create" have one of their own, so escape it or _describe
+    # misreads "base:create" as name=base, desc="create: Create a new item...".
+    disp+=("${c//:/\\:}:${_obsidian_cmds[$c]}")
+  done
+  _describe -t commands 'obsidian command' disp
+}
+
+_obsidian_complete_options() {
+  local cmd=$1
+  local -a raw used_keys kv_disp flag_disp
+  local line tok desc k w
+
+  raw=(${(f)_obsidian_opts_raw[$cmd]})
+  raw+=($_obsidian_global_opts_raw)
+
+  for w in "${(@)words[3,CURRENT-1]}"; do
+    [[ $w == *=* ]] && used_keys+=(${w%%=*})
+  done
+
+  for line in $raw; do
+    [[ -z $line ]] && continue
+    tok=${line%%$'\t'*}
+    desc=${line#*$'\t'}
+    [[ $tok == '<'*'>' ]] && continue  # positional placeholder, not a flag
+    k=${tok%%=*}
+    (( ${used_keys[(I)$k]} )) && continue
+    if [[ $tok == *=* ]]; then
+      kv_disp+=("${k//:/\\:}=:${desc//:/\\:}")
+    else
+      flag_disp+=("${tok//:/\\:}:${desc//:/\\:}")
+    fi
+  done
+
+  (( ${#kv_disp} )) && _describe -t options 'obsidian option' kv_disp -S ''
+  (( ${#flag_disp} )) && _describe -t flags 'obsidian flag' flag_disp
+}
+
+_obsidian_complete_value() {
+  local cmd=$1 cur=$2
+  local key=${cur%%=*}
+  local -a raw vals
+  local line tok found
+
+  raw=(${(f)_obsidian_opts_raw[$cmd]})
+  raw+=($_obsidian_global_opts_raw)
+
+  found=''
+  for line in $raw; do
+    [[ -z $line ]] && continue
+    tok=${line%%$'\t'*}
+    [[ ${tok%%=*} == $key ]] || continue
+    found=${tok#*=}
+    break
+  done
+
+  compset -P '*='
+
+  if [[ $found == *'|'* ]]; then
+    vals=(${(s:|:)found})
+    compadd -- $vals
+    return
+  fi
+
+  case $key in
+    vault)
+      vals=(${(f)"$(obsidian vaults 2>/dev/null </dev/null)"})
+      compadd -- $vals
+      ;;
+    path)
+      vals=(${(f)"$(obsidian files 2>/dev/null </dev/null)"})
+      compadd -- $vals
+      ;;
+    file)
+      local -a f
+      f=(${(f)"$(obsidian files 2>/dev/null </dev/null)"})
+      vals=(${(u)f:t:r})
+      compadd -- $vals
+      ;;
+    folder)
+      vals=(${(f)"$(obsidian folders 2>/dev/null </dev/null)"})
+      compadd -- $vals
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+_obsidian() {
+  _obsidian_parse
+
+  if (( CURRENT == 2 )); then
+    _obsidian_complete_commands
+    return
+  fi
+
+  local cmd=${words[2]}
+
+  if [[ $cmd == help && $CURRENT == 3 ]]; then
+    _obsidian_complete_commands
+    return
+  fi
+
+  local cur=${words[CURRENT]}
+  if [[ $cur == *=* ]]; then
+    _obsidian_complete_value "$cmd" "$cur"
+  else
+    _obsidian_complete_options "$cmd"
+  fi
+}
+
+_obsidian "$@"
