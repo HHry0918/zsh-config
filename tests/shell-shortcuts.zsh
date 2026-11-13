@@ -132,6 +132,27 @@ STUB
     grep -qxF 'help aliases' "$bindir/argv.log" || exit 1
     grep -qF 'aliases --help' "$bindir/argv.log" && exit 1
     grep -qF 'DANGER' "$bindir/argv.log" && exit 1
+
+    # fzf-tab's preview template EXPORTS word/desc before exec'ing this
+    # script; the script's own `local word desc` (no value) on an
+    # already-exported param is zsh's typeset-query form and PRINTS it
+    # unless typeset_silent is set — reproduced as a stray "word=…"/"desc=…"
+    # line above every real preview. Export them here to catch a regression.
+    local block_out
+    block_out=$(word=aliases desc='aliases -- List aliases in the vault' \
+      zsh -f "$fth" block aliases 'aliases -- List aliases in the vault' -- obsidian) || exit 1
+    [[ $block_out == *'word='* || $block_out == *'desc='* ]] && exit 1
+
+    # A command absent from PATH must never poison the cache: `timeout`
+    # itself fails to exec (rc 127) and that failure text must not be
+    # persisted as if it were real --help output (reproduced: a transient
+    # PATH gap made obsidian's cache return "timeout: failed to run command
+    # 'obsidian'" for up to 7 days).
+    rm -rf -- "$cachedir"/*
+    local missing_out
+    missing_out=$(zsh -f "$fth" usage -- nonexistent-cmd-xyz)
+    [[ $missing_out == *'failed to run'* ]] && exit 1
+    grep -rlF 'failed to run' "$cachedir" >/dev/null 2>&1 && exit 1
     exit 0
   ) || return 1
 
