@@ -96,15 +96,39 @@ HIST_STAMPS="dd/mm/yyyy HH:MM:SS"
 # underlying tool (e.g. procs 0.14 renaming --completion-out to --gen-completion-out)
 # must degrade to "no completion" on the next start, not leave a permanently-stale,
 # newer-than-binary cache sourced on every startup.
+# Optional -f <filterfn>: pipes the generator's stdout through that shell
+# function before caching, and tracks which filter produced the cache in a
+# sibling "<file>.filter" marker. If the filter name doesn't match the marker
+# (unset filter, a different one, or a stale cache from before this existed),
+# that counts as stale too — so a pre-existing unpatched cache regenerates
+# once, instead of staying wrong forever.
 _zgen() {
   local f=$1; shift
+  local filter=''
+  if [[ $1 == -f ]]; then
+    filter=$2; shift 2
+  fi
   local bin=${commands[$1]}
   [[ -n $bin ]] || return 1
-  if [[ ! -s $f || $f -ot $bin ]]; then
+  local marker="${f}.filter"
+  local cur_marker=''
+  [[ -s $marker ]] && cur_marker=$(<"$marker")
+  if [[ ! -s $f || $f -ot $bin || $cur_marker != $filter ]]; then
     mkdir -p ${f:h}
     local tmp; tmp=$(mktemp "${f}.XXXXXX")
-    if "$@" >| "$tmp" && [[ -s $tmp ]]; then
+    local ok=0
+    if [[ -n $filter ]]; then
+      "$@" 2>/dev/null | $filter >| "$tmp" && [[ -s $tmp ]] && ok=1
+    else
+      "$@" >| "$tmp" && [[ -s $tmp ]] && ok=1
+    fi
+    if (( ok )); then
       mv "$tmp" "$f"
+      if [[ -n $filter ]]; then
+        print -r -- "$filter" >| "$marker"
+      else
+        rm -f "$marker"
+      fi
     else
       rm -f "$tmp"
     fi
@@ -121,12 +145,17 @@ _zcache() {
   [[ -s $f ]] && source $f
 }
 
-# _zcomp <name> <cmd...> — _zgen into ~/.cache/zsh/completions/_<name>, an fpath
-# completion file compinit autoloads on first use instead of sourcing eagerly. Must be
-# called (and the cache dir added to fpath) before compinit/oh-my-zsh.sh runs.
+# _zcomp <name> [-f <filterfn>] <cmd...> — _zgen into
+# ~/.cache/zsh/completions/_<name>, an fpath completion file compinit autoloads
+# on first use instead of sourcing eagerly. Must be called (and the cache dir
+# added to fpath) before compinit/oh-my-zsh.sh runs.
 _zcomp() {
   local name=$1; shift
-  _zgen ~/.cache/zsh/completions/_$name "$@"
+  local -a extra
+  if [[ $1 == -f ]]; then
+    extra=(-f $2); shift 2
+  fi
+  _zgen ~/.cache/zsh/completions/_$name "${extra[@]}" "$@"
 }
 
 # Which plugins would you like to load?
@@ -134,10 +163,13 @@ _zcomp() {
 # Custom plugins may be added to $ZSH_CUSTOM/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-# fzf-tab handles completion for all commands, including cd.
-plugins=(zoxide fzf fzf-tab tmux alias-finder aliases)
+# fzf-tab handles completion for all commands, including cd. fzf's own shell
+# integration (^T/^C/^R, `**<TAB>` trigger) is loaded ourselves below via
+# _zcache, not the OMZ "fzf" plugin (that plugin just re-runs `fzf --zsh` on
+# every startup — ~14ms measured — with no cache of its own).
+plugins=(zoxide fzf-tab tmux alias-finder aliases)
 
-### fzf env — OMZ's fzf plugin loads the shell integration below.
+### fzf env — shell integration itself is cached below, before oh-my-zsh.sh.
 export FZF_TMUX_HEIGHT=100%
 
 if command -v fd >/dev/null; then
@@ -216,8 +248,30 @@ zinit light zsh-users/zsh-completions
 # below) that must land in fpath before compinit (inside oh-my-zsh.sh) runs, so compinit
 # autoloads them on first use instead of us sourcing them eagerly on every startup.
 fpath=(~/.zfunc ~/.cache/zsh/completions $fpath)
-_zcomp uv uv generate-shell-completion zsh
+
+# uv's generated completion leaves `uv tool install <package>` with an empty
+# action, so <TAB> offers nothing. Filter the generated _uv body at cache time
+# (not after loading — _uv is autoloaded lazily by compinit on first use, so
+# there is no loaded _uv function here to patch) to complete installed tool
+# names plus local paths (`.`, wheels, project dirs). If uv changes the spec
+# text, the substitution is a no-op and stock completion is kept.
+_uv_tool_pkgs() {
+  local -a tools
+  tools=(${${(f)"$(uv tool list --quiet 2>/dev/null)"}:#-*})
+  tools=(${tools%% *})
+  _alternative 'tools:installed tool:compadd -a tools' 'files:local path:_files'
+}
+_uv_comp_filter() {
+  sed "s/:package -- The package to install commands from:'/:package -- The package to install commands from:_uv_tool_pkgs'/"
+}
+_zcomp uv -f _uv_comp_filter uv generate-shell-completion zsh
 _zcomp uvx uvx --generate-shell-completion zsh
+
+# fzf's own shell integration, cached (regenerates only when the fzf binary is
+# newer than the cache). Must run BEFORE oh-my-zsh.sh: fzf-tab is an OMZ plugin
+# loaded by the line below, and it needs to bind ^I after fzf's own `--zsh`
+# output does, so fzf-tab's binding wins if the two ever overlap.
+_zcache fzf fzf --zsh
 
 source $ZSH/oh-my-zsh.sh
 zinit cdreplay -q
@@ -274,7 +328,12 @@ if [[ -o interactive ]]; then
       local -a w=(${(z)${line##*[|;&]}})          # words of the last simple command
       while (( $#w )) && [[ $w[1] == (*=*|sudo|command|builtin|noglob|nocorrect|exec|time|env) ]]; do shift w; done
       if [[ $line == *--help ]] || (( ! $human_h[(Ie)${w[1]:t}] )); then
-        BUFFER="${line} 2>&1 </dev/null | bat --language=help --color=always"
+        # col -bx first: macOS man (mandoc) marks bold/underline with
+        # backspace overstrike (X^HX), which a tool like `git commit --help`
+        # (shells out to man) emits straight through to bat. bat strips ANSI,
+        # not backspaces, so without this the help text shows literal ^H
+        # garbage. col -bx is a no-op on plain --help text besides tabs->spaces.
+        BUFFER="${line} 2>&1 </dev/null | col -bx | bat --language=help --color=always"
       fi
     fi
     zle .accept-line
@@ -333,23 +392,103 @@ setopt hist_find_no_dups
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
 zstyle ':completion:*' menu no
+# fzf-tab: names-only candidate list everywhere (description moves to the
+# preview pane via fzf-tab-help), plus a pinned Usage block + scrolling Commands
+# block for the command being completed — for every command, not just obsidian.
+#
+# fzf-tab feeds fzf lines as "prefix\0display\0suffix", display = "name   -- desc"
+# (Aloxaf/fzf-tab lib/-ftb-generate-complist); --delimiter + --with-nth hide the
+# "-- desc" tail from the rendered list without losing the data — fzf-tab-help
+# reads $desc directly in the preview, not the rendered line. {-1} (not a fixed
+# index) because the suffix field shifts when a candidate has no description.
+# --nth=.. is required once --with-nth is set: nth normally matches against the
+# *transformed* text, so without this, typing to filter would match nothing.
+# Verified in a tmux capture (fzf 0.75): these flags render "aliases",
+# "base:create", "plain/" — no " -- " tail, names intact.
+typeset -ga _ftb_base_flags=(
+  --border-label ' Completion (Tab) '
+  --delimiter='\x00| +-- '
+  # {1}{2}, not {1}{2}{-1}: fzf's AWK-style splitter elides a trailing EMPTY
+  # field instead of keeping it, and fzf-tab's candidate lines almost always
+  # end with an empty suffix field (dsuf, only ever non-empty for a path
+  # candidate's trailing "/"/"@"). For every candidate WITH a description —
+  # the common case this whole thing exists for — that elision makes {-1}
+  # resolve to the DESCRIPTION field instead of the (absent) suffix,
+  # reproducing the exact "name -- desc" clutter this is meant to hide
+  # (confirmed in an isolated fzf repro: {1}{2}{-1} rendered "addAdd file
+  # contents to the index" glued together with no separator). Dropping {-1}
+  # loses the trailing "/" hint on directory candidates in the LIST ONLY —
+  # TAB-accept, the realdir branch below, and $realpath are unaffected, since
+  # none of them go through --with-nth (display-only; {f}/{} placeholders
+  # always read the untransformed original line).
+  --with-nth='{1}{2}'
+  --nth=..
+  --preview-label ' Usage '
+  # fzf-tab asks fzf for header-lines=0 here (no group headers in play), but
+  # fzf's own newer border layout still renders an empty bordered "Results"
+  # box above the list once any header region exists at all. Blanking the
+  # label is the documented way to make an empty header box invisible-ish
+  # without fighting fzf's layout (confirmed in tmux: box renders with no
+  # visible seam once the label is empty instead of "Results").
+  --header-label=''
+)
+# fzf-tab-help's help-form override: obsidian-cli runs a subcommand's ACTION
+# instead of printing help when given "<sub> --help" (confirmed: "obsidian
+# aliases --help" ran `aliases` rather than showing its help). "help %s" asks
+# obsidian's own `help` command instead, which is safe for every subcommand.
+zstyle ':fzf-tab-help:obsidian' help-form 'help %s'
+# fzf-tab-help runs as a SEPARATE PROCESS (fzf-tab execs it from this file's
+# fzf-flags/fzf-preview zstyles) — zstyle state is in-process only and never
+# crosses a fork/exec, so the script can't just `zstyle -s` the line above and
+# see it (confirmed: under a bare subprocess it saw no override and fell back
+# to "aliases --help", the exact danger this mechanism exists to prevent).
+# Serialize every ':fzf-tab-help:<cmd>' help-form registration into an env var
+# instead, so new overrides only ever need to be added as a zstyle above this
+# line — nothing else to keep in sync.
+() {
+  local -a lines serialized
+  local l cmd form
+  lines=(${(f)"$(zstyle -L ':fzf-tab-help:*' help-form)"})
+  for l in $lines; do
+    local -a w; w=(${(z)l})
+    cmd=${${(Q)w[2]}#:fzf-tab-help:}
+    form=${(Q)w[4]}
+    serialized+=("$cmd"$'\t'"$form")
+  done
+  export FZF_TAB_HELP_FORMS="${(F)serialized}"
+
+  # Same fork/exec problem for the no-subhelp denylist (':fzf-tab-help:*'
+  # no-subhelp) — serialize it too, so a zstyle override here (not just the
+  # script's own hardcoded default) actually reaches the subprocess.
+  local -a deny
+  zstyle -a ':fzf-tab-help:*' no-subhelp deny
+  export FZF_TAB_HELP_NO_SUBHELP="${(j: :)deny}"
+}
 zstyle ':fzf-tab:*' use-fzf-default-opts yes
-zstyle ':fzf-tab:*' fzf-flags --border-label ' Completion (Tab) '
+# -e, not a literal value: the pinned-line count (~N) depends on which command
+# is being completed (fzf-tab-help usage-lines), so it's computed per
+# completion rather than fixed at shell-startup. $words is in scope here —
+# -ftb-fzf dumps it before evaluating this style.
+zstyle -e ':fzf-tab:complete:*' fzf-flags '
+  reply=($_ftb_base_flags --preview-window "right,50%,wrap,~$(fzf-tab-help usage-lines -- $words)")'
 if command -v lsd >/dev/null; then
   # Remove the old command-specific overrides when re-sourcing this file.
   zstyle -d ':fzf-tab:complete:cd:*' fzf-preview
   zstyle -d ':fzf-tab:complete:__zoxide_z:*' fzf-preview
+  # The realdir (file/dir) branch stays inline and unchanged — it's what
+  # tests/shell-shortcuts.zsh stubs as functions. fzf-tab-help only supplies
+  # the pinned Usage prefix (always) and the Commands block (non-file case).
   zstyle ':fzf-tab:complete:*' fzf-preview '
+    fzf-tab-help usage -- $words
     if (( $+ctxt[realdir] )); then
       if [[ -d "$realpath" ]]; then
         lsd -la --header --tree --depth 1 --color=always --icon=auto --group-directories-first --git -- "$realpath"
       elif [[ -f "$realpath" ]]; then
         fzf-preview.sh "$realpath"
       fi
+    else
+      fzf-tab-help block "$word" "$desc" -- $words
     fi'
-  # Keep both actions on one focus binding; duplicate events in --bind overwrite.
-  zstyle ':fzf-tab:complete:*' fzf-bindings \
-    'focus:transform-preview-label@{_FTB_INIT_} if (( $+ctxt[realdir] )); then printf " Previewing [%s] " "$realpath"; else printf " "; fi@+transform-header@{_FTB_INIT_} if (( $+ctxt[realdir] )); then if [[ -d "$realpath" ]]; then lsd -ld --color=always --icon=auto --git -- "$realpath"; else file --brief -- "$realpath"; fi; else printf " "; fi@'
 fi
 
 ### dircolors
@@ -450,7 +589,15 @@ _claude_mem_worker=("$HOME"/.claude/plugins/cache/thedotmack/claude-mem/*/script
 unset _claude_mem_worker
 
 find-child-mount() {
-  findmnt -rn -o TARGET | awk -v p="$PWD" 'index($1, p "/") == 1 { sub("^" p "/", "", $1); print $1 }' | xargs
+  local dir=${PWD:A}
+  if (( $+commands[findmnt] )); then
+    findmnt -rn -o TARGET
+  else
+    # macOS: "<source> on <target> (<options>)". System volumes (Macintosh HD
+    # and its /System/Volumes/* siblings) are all mounted "nobrowse", so drop
+    # those.
+    mount | grep -v '[(,] nobrowse[,)]' | sed -E 's/^.* on (.*) \([^()]*\)$/\1/'
+  fi | awk -v p="${dir%/}/" 'index($0, p) == 1 { print substr($0, length(p) + 1) }' | xargs
 }
 
 ### procs
