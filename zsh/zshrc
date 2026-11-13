@@ -465,6 +465,84 @@ zstyle ':fzf-tab-help:obsidian' help-form 'help %s'
   export FZF_TAB_HELP_NO_SUBHELP="${(j: :)deny}"
 }
 zstyle ':fzf-tab:*' use-fzf-default-opts yes
+# For a command with NO subcommands (ls, rg, fd...), offer --options as
+# completion candidates without requiring a leading '-' first — so `ls <TAB>`
+# lists files AND --all/--long/etc, not just files. A command WITH
+# subcommands (git, obsidian) is untouched (not in this map), so `git <TAB>`
+# stays subcommands-only.
+#
+# A zstyle alone can't do this: _arguments only reaches a 'prefix-needed'
+# check when nothing else already matched the word (`-z "$matched"`,
+# /usr/share/zsh/5.9/functions/_arguments:476), and _lsd/_rg/_fd all end
+# their spec list with a catch-all positional (e.g. _lsd's '*::inputs:_files')
+# that matches trivially even on an empty word — confirmed live, that style's
+# callback was never invoked for `ls <TAB>`. So this is a completion-function
+# WRAPPER registered via compdef, not a zstyle.
+#
+# Keyed on the REAL completion-dispatch name, not the typed command: `ls` is
+# `alias ls='lsd --group-directories-first'`, completealiases is off, and zsh
+# substitutes the alias into $words before completion runs — confirmed live,
+# $_comps[ls]=_ls and $_comps[lsd]=_lsd, but `ls <TAB>` actually dispatches as
+# lsd. Registering on 'ls' would be inert; 'lsd' covers both `ls` and `lsd`.
+typeset -gA _fth_flat_completers=(lsd _lsd rg _rg fd _fd)
+
+# _fth_options_candidate FLAG DESC -> one _describe-ready "flag:desc" string,
+# with DESC's ':' escaped (_describe treats an unescaped ':' as the
+# tag/description separator). Factored out so it's testable as a pure string
+# transform, without any completion-widget state.
+_fth_options_candidate() {
+  local flag=$1 desc=$2
+  print -r -- "${flag}:${desc//:/\\:}"
+}
+
+# _fth_options_wrapper -> delegates to the real completer for $service, then
+# (unless mid an option's own value) also offers that command's --options as
+# bare candidates, parsed heuristically from its --help text.
+_fth_options_wrapper() {
+  # Capture BEFORE calling the real completer: _arguments can mutate
+  # $PREFIX/$words (e.g. `compset -P` narrowing after `--color=`), so reading
+  # these after the real completer ran could see a state that no longer
+  # reflects what the user actually typed.
+  local _ftho_prefix=$PREFIX _ftho_cur=$CURRENT
+  local -a _ftho_words=("${words[@]}")
+
+  local _ftho_real=${_fth_flat_completers[$service]:-}
+  [[ -n $_ftho_real ]] || return 1
+
+  "$_ftho_real"
+  local _ftho_rc=$?
+
+  # Mid a flag's own token (--col<TAB>) or its inline value (--color=<TAB>):
+  # only the real completer's candidates apply, never the heuristic list.
+  [[ $_ftho_prefix == -* || $_ftho_prefix == *=* ]] && return $_ftho_rc
+
+  # Mid a flag's separate-word value (-t <TAB>, --type <TAB>): skip only when
+  # the PREVIOUS word is itself a flag that takes a value — a no-value flag
+  # (e.g. ls's own alias flag, --group-directories-first) must NOT skip, or
+  # `ls <TAB>` (which is exactly this shape after alias expansion) never
+  # offers options at all.
+  local _ftho_prev=${_ftho_words[_ftho_cur-1]:-}
+  if [[ $_ftho_prev == -* ]]; then
+    local _ftho_row
+    for _ftho_row in ${(f)"$(fzf-tab-help options -- $service)"}; do
+      local -a _ftho_f=("${(ps:\t:)_ftho_row}")
+      if [[ ${_ftho_f[1]} == $_ftho_prev ]]; then
+        (( ${_ftho_f[2]} )) && return $_ftho_rc
+        break
+      fi
+    done
+  fi
+
+  local -a candidates
+  local _ftho_line
+  for _ftho_line in ${(f)"$(fzf-tab-help options -- $service)"}; do
+    local -a _ftho_f=("${(ps:\t:)_ftho_line}")
+    candidates+=("$(_fth_options_candidate "${_ftho_f[1]}" "${_ftho_f[3]}")")
+  done
+  (( $#candidates )) && _describe -t fth-flag-options 'options' candidates
+  return $_ftho_rc
+}
+compdef _fth_options_wrapper lsd rg fd
 # -e, not a literal value: the pinned-line count (~N) depends on which command
 # is being completed (fzf-tab-help usage-lines), so it's computed per
 # completion rather than fixed at shell-startup. $words is in scope here —
