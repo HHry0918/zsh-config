@@ -38,6 +38,65 @@
     [[ ${(j: :)flags} == *'~1'* ]] || exit 1
   ) || return 1
 
+  # _fth_options_candidate: pure string check of the _describe-ready
+  # "flag:desc" format, including ':' escaping in the description.
+  [[ $(_fth_options_candidate --color 'a: b') == '--color:a\: b' ]] || return 1
+  [[ $(_fth_options_candidate -a 'no colon here') == '-a:no colon here' ]] || return 1
+
+  # _fth_options_wrapper's own control flow: real completer always runs;
+  # heuristic flags are added/skipped per case. compadd and _describe are
+  # stubbed (real _describe/_tags need live completion-widget state that
+  # doesn't exist outside _main_complete — confirmed: calling it standalone
+  # errors "can only be called from completion function").
+  (
+    typeset -ga _fth_test_matches
+    compadd() { _fth_test_matches+=("${@:#-*}"); }
+    _describe() {
+      shift 3  # drop -t TAG 'description', leaving the array-name arg
+      local -a arr; arr=("${(@P)1}")
+      _fth_test_matches+=("${(@)arr%%:*}")
+    }
+    typeset -gA _fth_flat_completers=(stubcmd _stubcompleter)
+    _stubcompleter() { compadd -- file1 file2 }
+    function fzf-tab-help {
+      [[ $1 == options ]] || return 1
+      printf '-a\t0\tAll\n--all\t0\tAll\n-t\t1\tType\n--type\t1\tType\n--group-directories-first\t0\tGroup dirs first\n'
+    }
+
+    # Case A: bare word -> real matches AND heuristic flags.
+    _fth_test_matches=()
+    local -a words=(stubcmd '') ; local CURRENT=2 PREFIX='' service=stubcmd
+    _fth_options_wrapper
+    [[ ${_fth_test_matches[(Ie)file1]} -gt 0 ]] || return 1
+    [[ ${_fth_test_matches[(Ie)-a]} -gt 0 ]] || return 1
+
+    # Case B: mid dash-prefix -> only the real completer's matches.
+    _fth_test_matches=()
+    words=(stubcmd --col) ; CURRENT=2 ; PREFIX='--col'
+    _fth_options_wrapper
+    [[ ${_fth_test_matches[(Ie)file1]} -gt 0 ]] || return 1
+    [[ ${_fth_test_matches[(Ie)-a]} -eq 0 ]] || return 1
+
+    # Case C: mid a value-taking flag's separate-word value -> no heuristic,
+    # but the real completer's own matches still apply.
+    _fth_test_matches=()
+    words=(stubcmd -t '') ; CURRENT=3 ; PREFIX=''
+    _fth_options_wrapper
+    [[ ${_fth_test_matches[(Ie)file1]} -gt 0 ]] || return 1
+    [[ ${_fth_test_matches[(Ie)-a]} -eq 0 ]] || return 1
+
+    # Case D (the regression that failed twice): aliased words, previous
+    # word a NO-value flag -> heuristic flags still offered. This is the
+    # exact shape `ls <TAB>` takes after alias expansion
+    # (ls='lsd --group-directories-first').
+    _fth_test_matches=()
+    words=(stubcmd --group-directories-first '') ; CURRENT=3 ; PREFIX=''
+    _fth_options_wrapper
+    [[ ${_fth_test_matches[(Ie)-a]} -gt 0 ]] || return 1
+
+    exit 0
+  ) || return 1
+
   [[ $BAT_STYLE == full && $MANPAGER == "sh -c 'col -bx | bat -lman --strip-ansi=auto'" ]] || return 1
   [[ ${aliases[bat]} != *--style* && ${functions[_bat_help_accept_line]} != *--style* ]] || return 1
   # col -bx strips macOS man's backspace-overstrike bold/underline before bat
@@ -110,8 +169,24 @@ else
 fi
 STUB
     chmod +x "$bindir/obsidian"
+
+    # Flat command: no Commands:-style heading, just --options — the "ls,
+    # rg, fd" case. Used to prove the divider says "Options" (not
+    # "Commands") and that has-subcmds correctly says no for it.
+    cat >"$bindir/flatcmd" <<'STUB'
+#!/usr/bin/env zsh
+cat <<'EOF'
+Usage: flatcmd [options] [FILE]...
+
+Options:
+  -a, --all    Do not ignore entries starting with .
+EOF
+STUB
+    chmod +x "$bindir/flatcmd"
+
     export PATH="$bindir:$PATH"
     export FZF_TAB_HELP_CACHE_DIR="$cachedir"
+    export FZF_PREVIEW_COLUMNS=60
 
     # zsh -f, not a plain "$fth" invocation: the script's own #!/usr/bin/env
     # zsh shebang always sources the REAL (live, non-repo) ~/.zshenv on every
@@ -132,6 +207,54 @@ STUB
     grep -qxF 'help aliases' "$bindir/argv.log" || exit 1
     grep -qF 'aliases --help' "$bindir/argv.log" && exit 1
     grep -qF 'DANGER' "$bindir/argv.log" && exit 1
+
+    # has-subcmds + the full-width divider: obsidian (has a Commands:
+    # heading) gets "Commands" spanning FZF_PREVIEW_COLUMNS; flatcmd (no
+    # heading, just --options) gets "Options", same width.
+    zsh -f "$fth" has-subcmds -- obsidian || exit 1
+    zsh -f "$fth" has-subcmds -- flatcmd && exit 1
+    local divider_line
+    divider_line=$(zsh -f "$fth" usage -- obsidian | tail -1)
+    [[ $divider_line == *'Commands'* ]] || exit 1
+    [[ ${#divider_line} == "$FZF_PREVIEW_COLUMNS" ]] || exit 1
+    divider_line=$(zsh -f "$fth" usage -- flatcmd | tail -1)
+    [[ $divider_line == *'Options'* ]] || exit 1
+    [[ ${#divider_line} == "$FZF_PREVIEW_COLUMNS" ]] || exit 1
+
+    # 'options' subcommand: flatcmd's same-line description must not be
+    # mistaken for a value placeholder (TAKESVALUE=0 for both -a and --all).
+    local options_out
+    options_out=$(zsh -f "$fth" options -- flatcmd)
+    [[ $options_out == *$'-a\t0\tDo not ignore entries starting with .'* ]] || exit 1
+    [[ $options_out == *$'--all\t0\tDo not ignore entries starting with .'* ]] || exit 1
+
+    # Case E: rg's "-e PATTERN, --regexp=PATTERN" comma-value style — the
+    # placeholder sits BETWEEN flags, not at line-end; both must get
+    # TAKESVALUE=1 (line-level arity, not per-segment).
+    cat >"$bindir/fakerg" <<'STUB'
+#!/usr/bin/env zsh
+cat <<'EOF'
+Usage: fakerg [OPTIONS] PATTERN
+
+OPTIONS:
+  -e PATTERN, --regexp=PATTERN
+          Specify a pattern
+EOF
+STUB
+    chmod +x "$bindir/fakerg"
+    options_out=$(zsh -f "$fth" options -- fakerg)
+    [[ $options_out == *$'-e\t1\t'* ]] || exit 1
+    [[ $options_out == *$'--regexp\t1\t'* ]] || exit 1
+
+    # Case F: width pinning — the SAME stub parsed at two different
+    # FZF_PREVIEW_COLUMNS values must give identical TAKESVALUE output,
+    # proving the options parse uses its own width-pinned cache entry, not
+    # the live pane width.
+    rm -rf -- "$cachedir"/*
+    local options_80 options_120
+    options_80=$(FZF_PREVIEW_COLUMNS=80 zsh -f "$fth" options -- fakerg)
+    options_120=$(FZF_PREVIEW_COLUMNS=120 zsh -f "$fth" options -- fakerg)
+    [[ $options_80 == "$options_120" ]] || exit 1
 
     # fzf-tab's preview template EXPORTS word/desc before exec'ing this
     # script; the script's own `local word desc` (no value) on an
