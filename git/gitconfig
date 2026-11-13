@@ -1,6 +1,7 @@
 [core]
 	editor = vim
 	pager = delta
+	autocrlf = true
 [alias]
 	# Short alias
 	st = status
@@ -28,7 +29,6 @@
 	ms = merge --squash
 	cam = commit -am
 	br-name = rev-parse --abbrev-ref HEAD
-	repo-head-fullname = symbolic-ref refs/remotes/origin/HEAD
 	new-branch = co -b
 	br-del = br -D
 	rb = rebase
@@ -39,16 +39,75 @@
 	# through tr instead is portable and produces identical output for both fields.
 	lol = "!f() { fmt='%C(yellow)%h%C(reset)%x20%C(cyan)%d%C(reset)%x20%ad%x20(%ar)%x20%C(green)%an%C(reset)%x20%s'; if [ -t 1 ]; then line=$(git log --graph --decorate --date=short --abbrev-commit --color=always --pretty=format:\"$fmt\" \"$@\" | fzf --ansi --no-sort --layout=reverse '--border-label= Git Log ' '--header-label= Tips ' --header 'i: insert | Esc: preview | Enter: open\nv: visual/copy | Ctrl-c: quit\nj/k: scroll | Ctrl-d/u: half-page | g/G: top/bottom' --bind 'start:unbind(j,k,g,G,i,v),esc:hide-input+rebind(j,k,g,G,i,v),i:show-input+unbind(j,k,g,G,i,v),j:preview-down,k:preview-up,g:preview-top,G:preview-bottom,ctrl-d:transform(if [ \"$FZF_INPUT_STATE\" = hidden ]; then echo preview-half-page-down; else echo delete-char; fi),ctrl-u:transform(if [ \"$FZF_INPUT_STATE\" = hidden ]; then echo preview-half-page-up; else echo unix-line-discard; fi),v:execute(sha=$(printf \"%s\\n\" {} | grep -oE \"[0-9a-f]{7,}\" | head -1); [ -n \"$sha\" ] && git --no-pager show --color=never \"$sha\" | vim -Nu NONE -n -R -M - -c '\"'\"'set filetype=diff'\"'\"' -c '\"'\"'syntax enable'\"'\"' -c '\"'\"'vnoremap y y:call system(\"xclip -selection clipboard\", getreg('\"'\"'\"'\"'\"'\"'\"'\"'\"'\"'\"'\"'\"'\"'\"'\"'\"'))<CR>'\"'\"' -c '\"'\"'nnoremap q :qa!<CR>'\"'\"' -c '\"'\"'normal! v'\"'\"'),enter:execute(sha=$(printf \"%s\\n\" {} | grep -oE \"[0-9a-f]{7,}\" | head -1); [ -n \"$sha\" ] && git --no-pager show --color=always \"$sha\" | LESS=-R delta --paging=always --pager \"less -R\"),ctrl-g:ignore' --preview 'sha=$(echo {} | grep -oE \"[0-9a-f]{7,}\" | head -1); [ -n \"$sha\" ] && git show --color=always --stat --patch $sha | delta --paging=never --width=$FZF_PREVIEW_COLUMNS' --preview-window 'right,65%,border-left'); sha=$(echo \"$line\" | grep -oE '[0-9a-f]{7,}' | head -1); [ -z \"$sha\" ] && return 0; git show \"$sha\"; else git log --graph --decorate --date=short --abbrev-commit --pretty=format:\"$fmt\" \"$@\"; fi; }; f"
 	lola = "!git lol --all"
-	repo-head-name = "!f() { git repo-head-fullname | cut -d "/" -f 3,4 | tr '/' ' ' ; }; f"
-	repo-head-shortname = "!f() { git repo-head-fullname | cut -d "/" -f 4 ; }; f"
-	sync-local = "!f() { git co $(git repo-head-shortname) && git pr && git sw - && git pr ; }; f"
-	sync-remote = "!f() { export HEAD_BRANCH=$(git repo-head-shortname) && git co $HEAD_BRANCH && git pr && git sw - && git rbi $HEAD_BRANCH ; }; f"
+	default-branch-full = symbolic-ref refs/remotes/origin/HEAD
+	default-branch-short = "!f() { git default-branch-full | cut -d / -f 4 ; }; f"
+	default-branch = "!f() { git default-branch-full | cut -d / -f 3,4 | tr '/' ' ' ; }; f"
+	sync-local = "!f() { git co $(git default-branch-short) && git pr && git sw - && git pr ; }; f"
+	sync-remote = "!f() { export HEAD_BRANCH=$(git default-branch-short) && git co $HEAD_BRANCH && git pr && git sw - && git rbi origin $HEAD_BRANCH ; }; f"
 	ps-upstream = "!f() { git push --set-upstream origin $(git br-name); }; f"
 	prev-br-name = "!f() { git sw - > /dev/null 2>&1 && git br-name && git sw - > /dev/null 2>&1; }; f"
     df = "!f() { file=$(git diff --name-only | fzf --preview 'git diff -- {} | delta --paging=never --width=$FZF_PREVIEW_COLUMNS' --preview-window up,70%,border-bottom); [ -z \"$file\" ] && return 0; git diff -- \"$file\"; }; f"
     ds = "!f() { file=$(git diff --name-only --staged | fzf --preview 'git diff --staged -- {} | delta --paging=never --width=$FZF_PREVIEW_COLUMNS' --preview-window up,70%,border-bottom); [ -z \"$file\" ] && return 0; git diff --staged -- \"$file\"; }; f"
 	br-search = "!f() { sel=$(git for-each-ref --sort=-committerdate --format='%(if)%(symref)%(then)%(else)%(align:45,left)%(refname:short)%(end) %(color:cyan)%(committerdate:relative)%(color:reset) %(color:green)%(authorname)%(color:reset)%(end)' refs/heads refs/remotes | grep -v '^[[:space:]]*$' | fzf --ansi --no-multi --preview 'git show --stat --patch {1} | delta --paging=never --width=$FZF_PREVIEW_COLUMNS' --preview-window 'right,65%,border-left' | awk '{print $1}'); [ -z \"$sel\" ] && return 0; if git show-ref --verify --quiet \"refs/remotes/$sel\"; then loc=${sel#*/}; if git show-ref --verify --quiet \"refs/heads/$loc\"; then git checkout \"$loc\"; else git checkout --track \"$sel\"; fi; else git checkout \"$sel\"; fi; }; f"
 	rgg = "!f() { rg -nH --color=never \"$@\" | delta --grep-output-type=ripgrep; }; f"
+	merge-base-origin = "!f() { git merge-base ${1-HEAD} origin/$(git default-branch-short); };f"
+	stack = "!f() { \
+		BRANCH=${1-HEAD}; \
+		MERGE_BASE=$(git merge-base-origin $BRANCH); \
+		git log --decorate-refs=refs/heads --simplify-by-decoration --pretty=format:\"%(decorate:prefix=,suffix=,tag=,separator=%n)\" $MERGE_BASE..$BRANCH; \
+	};f "
+	push-stack = "!f() { \
+		BRANCH=${1-HEAD}; \
+		git stack $BRANCH | xargs -I {} git push --force-with-lease origin {}; \
+	};f "
+	# detach-stack-worktree/reattach-stack-worktree/rebase-stack: git can't move a branch ref
+	# that's checked out in another worktree, so --update-refs silently skips mid-stack branches
+	# checked out elsewhere. These detach those worktrees to (detached HEAD) before the rebase and
+	# reattach them after, so every ref in the stack can move. Assumes no worktree path contains a
+	# space (true for every worktree this repo creates under .claude/worktrees/).
+	detach-stack-worktree = "!f() { \
+		BRANCH=${1-HEAD}; \
+		STATE_FILE=\"$(git rev-parse --git-common-dir)/stack-worktree-detached\"; \
+		if [ -f \"$STATE_FILE\" ]; then echo \"stack-worktree-detached state file already exists at $STATE_FILE; run git reattach-stack-worktree first\" >&2; exit 1; fi; \
+		: > \"$STATE_FILE\"; \
+		CURRENT_WORKTREE=$(git rev-parse --show-toplevel); \
+		COUNT=0; \
+		FAILED=0; \
+		for b in $(git stack $BRANCH); do \
+			WT=$(git worktree list --porcelain | awk -v ref=\"refs/heads/$b\" '/^worktree /{wt=$2} /^branch /{if ($2==ref) print wt}'); \
+			if [ -n \"$WT\" ] && [ \"$WT\" != \"$CURRENT_WORKTREE\" ]; then \
+				echo \"$WT $b\" >> \"$STATE_FILE\"; \
+				if env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C \"$WT\" switch --detach HEAD; then \
+					COUNT=$((COUNT+1)); \
+				else \
+					echo \"failed to detach $b at $WT\" >&2; \
+					FAILED=1; \
+				fi; \
+			fi; \
+		done; \
+		echo \"Detached $COUNT branch(es); run git reattach-stack-worktree after rebasing.\"; \
+		[ \"$FAILED\" = 1 ] && exit 1; \
+		exit 0; \
+	};f "
+	reattach-stack-worktree = "!f() { \
+		STATE_FILE=\"$(git rev-parse --git-common-dir)/stack-worktree-detached\"; \
+		if [ ! -f \"$STATE_FILE\" ]; then echo \"no stack-worktree-detached state file found; nothing to reattach\" >&2; exit 1; fi; \
+		FAILED=0; \
+		while read -r WT B; do \
+			[ -z \"$WT\" ] && continue; \
+			env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C \"$WT\" switch \"$B\" || FAILED=1; \
+		done < \"$STATE_FILE\"; \
+		if [ \"$FAILED\" = 1 ]; then \
+			echo \"one or more worktrees failed to reattach; state file kept at $STATE_FILE, fix manually then rerun\" >&2; \
+			exit 1; \
+		fi; \
+		rm \"$STATE_FILE\"; \
+	};f "
+	rebase-stack = "!f() { \
+		BRANCH=${1-HEAD}; \
+		UPSTREAM=${2-origin/$(git default-branch-short)}; \
+		git detach-stack-worktree $BRANCH && git rebase $UPSTREAM && git reattach-stack-worktree && git stack $BRANCH; \
+	};f "
 [color]
 	branch = auto
 	diff = auto
@@ -58,6 +117,7 @@
 	template = ~/.gitmessage
 [rerere]
 	enabled = true
+	autoupdate = true
 [interactive]
 	diffFilter = delta --color-only
 [pager]
@@ -74,3 +134,6 @@
 	colorMoved = default
 [include]
 	path = ~/delta-themes.gitconfig
+[rebase]
+	updateRefs = true
+	autoSquash = true
